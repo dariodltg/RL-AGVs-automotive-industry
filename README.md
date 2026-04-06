@@ -2,7 +2,7 @@
 
 Systematic evaluation of **PPO (Proximal Policy Optimization)** vs **A\* + Greedy** for AGV fleet management in an automotive components manufacturing plant.
 
-Master's thesis — Industria 4.0, UNIR.
+Master's thesis — Industry 4.0, UNIR.
 
 ---
 
@@ -10,10 +10,10 @@ Master's thesis — Industria 4.0, UNIR.
 
 A fleet of Automated Guided Vehicles (AGVs) transports materials between manufacturing cells and entry/exit points inside a simulated plant. Two fleet management strategies are compared:
 
-| Strategy | Type | Description |
-|---|---|---|
-| **A\* + Greedy** | Classical baseline | Assigns each idle AGV the nearest pending task (Manhattan distance). Navigation via A\*. |
-| **PPO** | Reinforcement learning | Learned policy trained with Stable-Baselines3 on the Gymnasium environment. |
+| Strategy               | Type                   | Description                                                                              |
+| ---------------------- | ---------------------- | ---------------------------------------------------------------------------------------- |
+| **A\* + Greedy** | Classical baseline     | Assigns each idle AGV the nearest pending task (Manhattan distance). Navigation via A\*. |
+| **PPO**          | Reinforcement learning | Learned policy trained with Stable-Baselines3 on the Gymnasium environment.              |
 
 ---
 
@@ -43,6 +43,7 @@ Flat normalized vector: 5 features per AGV × 4 AGVs + 5 features per task slot 
 Per AGV: `0` = wait, `1–8` = assign task at that index.
 
 **Reward:**
+
 - `+10` per completed task
 - `−0.01` per timestep
 - `−5` per collision
@@ -50,13 +51,13 @@ Per AGV: `0` = wait, `1–8` = assign task at that index.
 
 **Key metrics** (available in `info` dict after each `step()`):
 
-| Metric | Key |
-|---|---|
-| Tasks completed | `tasks_completed` |
-| Average cycle time | `avg_cycle_time` |
-| AGV utilization per vehicle | `agv_utilization` |
-| Mean fleet utilization | `mean_utilization` |
-| Collisions | `collisions` |
+| Metric                      | Key                  |
+| --------------------------- | -------------------- |
+| Tasks completed             | `tasks_completed`  |
+| Average cycle time          | `avg_cycle_time`   |
+| AGV utilization per vehicle | `agv_utilization`  |
+| Mean fleet utilization      | `mean_utilization` |
+| Collisions                  | `collisions`       |
 
 ---
 
@@ -66,7 +67,7 @@ Per AGV: `0` = wait, `1–8` = assign task at that index.
 pip install -r requirements.txt
 ```
 
-Requirements: `gymnasium>=0.29`, `stable-baselines3>=2.3`, `numpy>=1.26`
+Requirements: `gymnasium>=0.29`, `stable-baselines3>=2.3`, `numpy>=1.26`, `pygame>=2.5`
 
 ---
 
@@ -79,6 +80,7 @@ python smoke_test.py
 ```
 
 Expected output summary:
+
 ```
 [1/5] PlantMap          — grid layout printed, cell counts verified
 [2/5] Environment       — action/observation spaces printed
@@ -87,6 +89,29 @@ Expected output summary:
 [5/5] AStarAgent        — 50-step episode with greedy baseline
 Smoke test PASSED
 ```
+
+---
+
+## Visual demo (Pygame)
+
+Runs the environment in real time with a 2D grid renderer:
+
+```bash
+python run_visual.py                   # AStarAgent at 10 fps (default)
+python run_visual.py --agent random    # random actions
+python run_visual.py --fps 20          # faster simulation
+python run_visual.py --n_agvs 4        # number of AGVs
+python run_visual.py --episodes 5      # stop after 5 episodes
+```
+
+Window controls:
+
+| Key           | Action                     |
+| ------------- | -------------------------- |
+| `SPACE`       | Pause / resume             |
+| `UP` / `DOWN` | Increase / decrease speed  |
+| `R`           | Reset episode              |
+| `ESC` / `Q`   | Quit                       |
 
 ---
 
