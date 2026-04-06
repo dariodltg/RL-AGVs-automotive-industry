@@ -1,19 +1,37 @@
 # RL-AGVs Automotive Industry
 
-Systematic evaluation of **PPO (Proximal Policy Optimization)** vs **A\* + Greedy** for AGV fleet management in an automotive components manufacturing plant.
+Systematic evaluation of **PPO (Proximal Policy Optimization)** vs **A\* + Greedy** for AGV fleet management in an automotive stamping and welding components plant.
 
-Master's thesis — Industry 4.0, UNIR.
+Master's thesis — Industria 4.0, UNIR.
 
 ---
 
 ## Overview
 
-A fleet of Automated Guided Vehicles (AGVs) transports materials between manufacturing cells and entry/exit points inside a simulated plant. Two fleet management strategies are compared:
+A fleet of Automated Guided Vehicles (AGVs) transports materials through the production stages of a simulated automotive plant. Two fleet management strategies are compared:
 
-| Strategy               | Type                   | Description                                                                              |
-| ---------------------- | ---------------------- | ---------------------------------------------------------------------------------------- |
+| Strategy         | Type                   | Description                                                                              |
+| ---------------- | ---------------------- | ---------------------------------------------------------------------------------------- |
 | **A\* + Greedy** | Classical baseline     | Assigns each idle AGV the nearest pending task (Manhattan distance). Navigation via A\*. |
 | **PPO**          | Reinforcement learning | Learned policy trained with Stable-Baselines3 on the Gymnasium environment.              |
+
+---
+
+## Production Flow
+
+```
+ENTRY → STAMPING → BUFFER → WELDING → EXIT
+```
+
+| Stage | Pickup     | Delivery | Description                              |
+| ----- | ---------- | -------- | ---------------------------------------- |
+| 0     | Entry      | Stamping | Raw sheet metal delivered to press cells |
+| 1     | Stamping   | Buffer   | Stamped parts moved to WIP storage       |
+| 2     | Buffer     | Welding  | Parts retrieved for welding              |
+| 3     | Welding    | Exit     | Finished components sent to output       |
+
+Tasks are generated stochastically and weighted toward earlier stages (more raw material demand).
+Later-stage task completions yield higher reward to reflect production value.
 
 ---
 
@@ -22,29 +40,48 @@ A fleet of Automated Guided Vehicles (AGVs) transports materials between manufac
 ```
 src/
 ├── env/
-│   ├── plant_map.py        # 20x20 grid map (manufacturing cells, corridors, charging stations)
-│   └── agv_fleet_env.py    # Gymnasium environment (action/observation spaces, reward, metrics)
+│   ├── plant_map.py        # 20x20 grid — ENTRY/STAMPING/BUFFER/WELDING/EXIT/CHARGING layout
+│   └── agv_fleet_env.py    # Gymnasium environment — action/observation/reward/metrics
 ├── navigation/
-│   ├── pathfinder.py       # BasePathfinder abstract class (Strategy pattern)
+│   ├── pathfinder.py       # BasePathfinder ABC (Strategy pattern)
 │   └── astar.py            # A* pathfinder with Manhattan heuristic
-└── agents/
-    ├── base_agent.py       # BaseAgent abstract class (Template Method pattern)
-    └── astar_agent.py      # Greedy nearest-task classical baseline
+├── agents/
+│   ├── base_agent.py       # BaseAgent ABC (Template Method pattern)
+│   └── astar_agent.py      # Greedy nearest-task classical baseline
+└── rendering/
+    └── pygame_renderer.py  # Real-time 2D Pygame visualizer with sprites and metrics panel
 ```
+
+---
+
+## Plant Map
+
+20×20 grid with dedicated zones for each production stage:
+
+| Symbol | Cell type | Description                |
+| ------ | --------- | -------------------------- |
+| `I`    | ENTRY     | Raw material input         |
+| `S`    | STAMPING  | Stamping press cells       |
+| `B`    | BUFFER    | WIP intermediate storage   |
+| `W`    | WELDING   | Welding station cells      |
+| `O`    | EXIT      | Finished component output  |
+| `C`    | CHARGING  | AGV charging stations      |
+| `#`    | OBSTACLE  | Walls and fixed machinery  |
+| `.`    | FREE      | AGV circulation corridors  |
 
 ---
 
 ## Environment
 
-**Observation space:** `Box(0.0, 1.0, shape=(60,), float32)`
-Flat normalized vector: 5 features per AGV × 4 AGVs + 5 features per task slot × 8 task slots.
+**Observation space:** `Box(0.0, 1.0, shape=(68,), float32)`
+Flat normalized vector: 5 features × 4 AGVs + 6 features × 8 task slots.
 
 **Action space:** `MultiDiscrete([9, 9, 9, 9])`
 Per AGV: `0` = wait, `1–8` = assign task at that index.
 
 **Reward:**
 
-- `+10` per completed task
+- `+10 + stage×2` per completed task (later stages yield more)
 - `−0.01` per timestep
 - `−5` per collision
 - `−0.5` per invalid action
@@ -53,11 +90,12 @@ Per AGV: `0` = wait, `1–8` = assign task at that index.
 
 | Metric                      | Key                  |
 | --------------------------- | -------------------- |
-| Tasks completed             | `tasks_completed`  |
-| Average cycle time          | `avg_cycle_time`   |
-| AGV utilization per vehicle | `agv_utilization`  |
-| Mean fleet utilization      | `mean_utilization` |
-| Collisions                  | `collisions`       |
+| Tasks completed             | `tasks_completed`    |
+| Tasks completed per stage   | `tasks_by_stage`     |
+| Average cycle time          | `avg_cycle_time`     |
+| AGV utilization per vehicle | `agv_utilization`    |
+| Mean fleet utilization      | `mean_utilization`   |
+| Collisions                  | `collisions`         |
 
 ---
 
@@ -82,9 +120,9 @@ python smoke_test.py
 Expected output summary:
 
 ```
-[1/5] PlantMap          — grid layout printed, cell counts verified
+[1/5] PlantMap          — grid layout printed, cell counts and flow verified
 [2/5] Environment       — action/observation spaces printed
-[3/5] reset()           — observation shape and initial info verified
+[3/5] reset()           — observation shape and initial tasks verified
 [4/5] Random agent      — 50-step episode with random actions
 [5/5] AStarAgent        — 50-step episode with greedy baseline
 Smoke test PASSED
@@ -142,6 +180,7 @@ env.close()
 ## Tech stack
 
 - **RL training:** Python · Gymnasium · Stable-Baselines3 (PPO)
+- **2D visualization:** Pygame (real-time renderer with sprites)
 - **3D visualization:** CoppeliaSim + ZeroMQ bridge *(planned)*
 - **Monitoring:** Grafana *(planned)*
 - **Platform:** Windows 10

@@ -24,11 +24,14 @@ from src.env.plant_map import CellType, PlantMap
 # ---------------------------------------------------------------------------
 
 _CELL_COLORS: Dict[CellType, Tuple[int, int, int]] = {
-    CellType.FREE:          (230, 230, 230),
-    CellType.OBSTACLE:      ( 50,  50,  50),
-    CellType.MANUFACTURING: ( 70, 130, 200),   # steel blue
-    CellType.ENTRY_EXIT:    ( 60, 180,  80),   # green
-    CellType.CHARGING:      (210, 165,  30),   # amber
+    CellType.FREE:     (210, 210, 210),
+    CellType.OBSTACLE: ( 45,  45,  45),
+    CellType.ENTRY:    ( 50, 180, 100),   # green  — raw material input
+    CellType.STAMPING: ( 70, 130, 200),   # steel blue — stamping presses
+    CellType.BUFFER:   (180, 130,  50),   # amber  — WIP storage
+    CellType.WELDING:  (200,  70,  70),   # red    — welding stations
+    CellType.EXIT:     (120,  60, 200),   # purple — finished output
+    CellType.CHARGING: (210, 200,  30),   # yellow — AGV charging
 }
 
 _AGV_STATUS_COLORS: Dict[AGVStatus, Tuple[int, int, int]] = {
@@ -154,19 +157,280 @@ class PygameRenderer:
                 if cell_type != CellType.OBSTACLE:
                     pygame.draw.rect(self._screen, _COLOR_GRID_LINE, rect, 1)
 
-        # Cell type labels (small icons inside cells)
-        label_map = {
-            CellType.MANUFACTURING: "M",
-            CellType.ENTRY_EXIT:    "E",
-            CellType.CHARGING:      "C",
-        }
+        # Cell type sprites
         for row in range(plant.GRID_SIZE):
             for col in range(plant.GRID_SIZE):
                 cell_type = CellType(plant.grid[row, col])
-                if cell_type in label_map:
-                    rect   = self._cell_rect(row, col)
-                    surf   = self._font_sm.render(label_map[cell_type], True, (255, 255, 255))
-                    self._screen.blit(surf, surf.get_rect(center=rect.center))
+                rect = self._cell_rect(row, col)
+                self._draw_cell_sprite(cell_type, rect)
+
+    def _draw_cell_sprite(self, cell_type: CellType, rect: pygame.Rect) -> None:
+        """Dispatches to the correct sprite drawing method for a given cell type."""
+        _sprite_dispatch = {
+            CellType.ENTRY:    self._sprite_entry,
+            CellType.STAMPING: self._sprite_stamping,
+            CellType.BUFFER:   self._sprite_buffer,
+            CellType.WELDING:  self._sprite_welding,
+            CellType.EXIT:     self._sprite_exit,
+            CellType.CHARGING: self._sprite_charging,
+        }
+        fn = _sprite_dispatch.get(cell_type)
+        if fn:
+            fn(rect)
+
+    def _sprite_charging(self, cell_rect: pygame.Rect) -> None:
+        """
+        Charging station sprite:
+          - Base platform at the bottom
+          - Vertical charging post
+          - Glow halo + lightning bolt
+        """
+        cs = self.CELL_SIZE
+        cx = cell_rect.centerx
+        cy = cell_rect.centery
+
+        # Base platform
+        platform = pygame.Rect(cell_rect.x + 4, cell_rect.bottom - 9, cs - 8, 6)
+        pygame.draw.rect(self._screen, (60, 50, 20), platform, border_radius=2)
+        pygame.draw.rect(self._screen, (180, 140, 40), platform, 1, border_radius=2)
+
+        # Vertical post
+        post_rect = pygame.Rect(cx - 2, cell_rect.y + 5, 4, cs - 14)
+        pygame.draw.rect(self._screen, (120, 100, 30), post_rect, border_radius=2)
+
+        # Glow halo
+        glow_surf = pygame.Surface((18, 18), pygame.SRCALPHA)
+        pygame.draw.circle(glow_surf, (255, 210, 0, 60), (9, 9), 9)
+        self._screen.blit(glow_surf, (cx - 9, cy - 11))
+
+        # Lightning bolt
+        bx, by = cx, cy - 9
+        bolt_points = [
+            (bx + 3, by),      (bx,     by + 6),
+            (bx + 3, by + 6),  (bx - 3, by + 13),
+            (bx,     by + 7),  (bx - 3, by + 7),
+        ]
+        pygame.draw.polygon(self._screen, (255, 220, 0), bolt_points)
+        pygame.draw.polygon(self._screen, (200, 160, 0), bolt_points, 1)
+
+    def _sprite_entry(self, cell_rect: pygame.Rect) -> None:
+        """
+        ENTRY cell sprite — loading dock with inbound arrow:
+          - Green arch frame
+          - Down arrow (material entering)
+          - Dashed threshold line at bottom
+        """
+        cs = self.CELL_SIZE
+        cx = cell_rect.centerx
+        x, y = cell_rect.x, cell_rect.y
+
+        arch_rect = pygame.Rect(x + 5, y + 4, cs - 10, cs - 8)
+        pygame.draw.rect(self._screen, (20, 80, 40), arch_rect, border_radius=6)
+        pygame.draw.rect(self._screen, (100, 230, 130), arch_rect, 2, border_radius=6)
+        inner = pygame.Rect(x + 9, y + 8, cs - 18, cs - 14)
+        pygame.draw.rect(self._screen, (10, 40, 20), inner, border_radius=3)
+
+        # Down arrow (material coming IN)
+        arrow_color = (120, 255, 150)
+        dn_tip = (cx, y + cs - 8)
+        pygame.draw.polygon(self._screen, arrow_color, [
+            dn_tip, (cx - 4, y + cs - 15), (cx + 4, y + cs - 15)
+        ])
+        pygame.draw.line(self._screen, arrow_color, (cx, y + 10), (cx, y + cs - 15), 2)
+
+        dash_y = cell_rect.bottom - 3
+        for i in range(3):
+            dx = x + 7 + i * 8
+            pygame.draw.line(self._screen, (100, 230, 130), (dx, dash_y), (dx + 4, dash_y), 2)
+
+    def _sprite_stamping(self, cell_rect: pygame.Rect) -> None:
+        """
+        STAMPING cell sprite — stamping press:
+          - Dark frame (press body)
+          - Horizontal press plate in the center
+          - Downward force arrows suggesting press action
+        """
+        cs = self.CELL_SIZE
+        cx = cell_rect.centerx
+        x, y = cell_rect.x, cell_rect.y
+
+        # Press body
+        frame = pygame.Rect(x + 4, y + 4, cs - 8, cs - 8)
+        pygame.draw.rect(self._screen, (25, 55, 100), frame, border_radius=2)
+        pygame.draw.rect(self._screen, (120, 170, 240), frame, 1, border_radius=2)
+
+        # Top cross-beam
+        pygame.draw.rect(self._screen, (80, 130, 200),
+                         pygame.Rect(x + 5, y + 6, cs - 10, 4))
+
+        # Press plate (lower, thicker bar)
+        plate_y = y + cs // 2
+        pygame.draw.rect(self._screen, (100, 150, 220),
+                         pygame.Rect(x + 6, plate_y, cs - 12, 5))
+
+        # Force arrows (small downward chevrons)
+        for ax in (cx - 5, cx + 2):
+            pygame.draw.polygon(self._screen, (180, 210, 255), [
+                (ax, plate_y - 6), (ax + 3, plate_y - 2), (ax + 6, plate_y - 6)
+            ])
+
+    def _sprite_buffer(self, cell_rect: pygame.Rect) -> None:
+        """
+        BUFFER / WIP cell sprite — storage rack:
+          - Amber background frame
+          - 2 shelf lines
+          - Small boxes on shelves
+        """
+        cs = self.CELL_SIZE
+        x, y = cell_rect.x, cell_rect.y
+
+        frame = pygame.Rect(x + 4, y + 4, cs - 8, cs - 8)
+        pygame.draw.rect(self._screen, (90, 60, 20), frame, border_radius=2)
+        pygame.draw.rect(self._screen, (220, 170, 60), frame, 1, border_radius=2)
+
+        # Shelf lines
+        for i in range(2):
+            shelf_y = y + 11 + i * 9
+            pygame.draw.line(self._screen, (200, 150, 50),
+                             (x + 6, shelf_y), (x + cs - 6, shelf_y), 1)
+            # Boxes on shelf
+            for bx in (x + 7, x + 13, x + 19):
+                pygame.draw.rect(self._screen, (240, 190, 80),
+                                 pygame.Rect(bx, shelf_y - 5, 4, 5))
+
+    def _sprite_welding(self, cell_rect: pygame.Rect) -> None:
+        """
+        WELDING cell sprite — welding station:
+          - Dark red frame
+          - Welding torch arm
+          - Spark burst at tip
+        """
+        cs = self.CELL_SIZE
+        cx = cell_rect.centerx
+        cy = cell_rect.centery
+        x, y = cell_rect.x, cell_rect.y
+
+        frame = pygame.Rect(x + 4, y + 4, cs - 8, cs - 8)
+        pygame.draw.rect(self._screen, (100, 25, 25), frame, border_radius=2)
+        pygame.draw.rect(self._screen, (240, 100, 100), frame, 1, border_radius=2)
+
+        # Torch arm (diagonal line)
+        torch_start = (x + 7, y + 7)
+        torch_end   = (cx + 3, cy + 3)
+        pygame.draw.line(self._screen, (200, 80, 80), torch_start, torch_end, 3)
+        pygame.draw.circle(self._screen, (220, 100, 80), torch_end, 3)
+
+        # Spark burst at tip
+        spark_color = (255, 220, 60)
+        for dx, dy in ((4, 0), (-4, 0), (0, 4), (0, -4), (3, 3), (-3, -3)):
+            sx, sy = torch_end[0] + dx, torch_end[1] + dy
+            pygame.draw.line(self._screen, spark_color, torch_end, (sx, sy), 1)
+
+    def _sprite_exit(self, cell_rect: pygame.Rect) -> None:
+        """
+        EXIT cell sprite — outbound dock with upward arrow:
+          - Purple arch frame
+          - Up arrow (finished parts going OUT)
+          - Dashed threshold line
+        """
+        cs = self.CELL_SIZE
+        cx = cell_rect.centerx
+        x, y = cell_rect.x, cell_rect.y
+
+        arch_rect = pygame.Rect(x + 5, y + 4, cs - 10, cs - 8)
+        pygame.draw.rect(self._screen, (60, 25, 110), arch_rect, border_radius=6)
+        pygame.draw.rect(self._screen, (180, 100, 255), arch_rect, 2, border_radius=6)
+        inner = pygame.Rect(x + 9, y + 8, cs - 18, cs - 14)
+        pygame.draw.rect(self._screen, (30, 10, 60), inner, border_radius=3)
+
+        # Up arrow (finished parts going OUT)
+        arrow_color = (200, 150, 255)
+        up_tip = (cx, y + 8)
+        pygame.draw.polygon(self._screen, arrow_color, [
+            up_tip, (cx - 4, y + 15), (cx + 4, y + 15)
+        ])
+        pygame.draw.line(self._screen, arrow_color, (cx, y + 15), (cx, y + cs - 8), 2)
+
+        dash_y = cell_rect.bottom - 3
+        for i in range(3):
+            dx = x + 7 + i * 8
+            pygame.draw.line(self._screen, (180, 100, 255), (dx, dash_y), (dx + 4, dash_y), 2)
+
+    def _draw_cell_sprite_scaled(self, cell_type: CellType, rect: pygame.Rect) -> None:
+        """
+        Draws a scaled-down cell sprite for the legend panel.
+        Renders to a temporary surface then blits onto the screen.
+        """
+        size = rect.width
+        surf = pygame.Surface((size, size), pygame.SRCALPHA)
+        cx   = size // 2
+
+        if cell_type == CellType.ENTRY:
+            pygame.draw.rect(surf, (20, 80, 40),
+                             pygame.Rect(2, 2, size - 4, size - 4), border_radius=3)
+            pygame.draw.rect(surf, (100, 230, 130),
+                             pygame.Rect(2, 2, size - 4, size - 4), 1, border_radius=3)
+            # Down arrow
+            pygame.draw.polygon(surf, (120, 255, 150),
+                                [(cx, size - 4), (cx - 3, size - 9), (cx + 3, size - 9)])
+            pygame.draw.line(surf, (120, 255, 150), (cx, 4), (cx, size - 9), 1)
+
+        elif cell_type == CellType.STAMPING:
+            pygame.draw.rect(surf, (25, 55, 100),
+                             pygame.Rect(2, 2, size - 4, size - 4), border_radius=2)
+            pygame.draw.rect(surf, (120, 170, 240),
+                             pygame.Rect(2, 2, size - 4, size - 4), 1, border_radius=2)
+            pygame.draw.rect(surf, (80, 130, 200), pygame.Rect(3, 4, size - 6, 3))
+            pygame.draw.rect(surf, (100, 150, 220),
+                             pygame.Rect(4, size // 2, size - 8, 3))
+
+        elif cell_type == CellType.BUFFER:
+            pygame.draw.rect(surf, (90, 60, 20),
+                             pygame.Rect(2, 2, size - 4, size - 4), border_radius=2)
+            pygame.draw.rect(surf, (220, 170, 60),
+                             pygame.Rect(2, 2, size - 4, size - 4), 1, border_radius=2)
+            for i in range(2):
+                sy = 8 + i * 7
+                pygame.draw.line(surf, (200, 150, 50), (3, sy), (size - 3, sy), 1)
+                for bx in (4, 9, 14):
+                    pygame.draw.rect(surf, (240, 190, 80),
+                                     pygame.Rect(bx, sy - 4, 3, 4))
+
+        elif cell_type == CellType.WELDING:
+            pygame.draw.rect(surf, (100, 25, 25),
+                             pygame.Rect(2, 2, size - 4, size - 4), border_radius=2)
+            pygame.draw.rect(surf, (240, 100, 100),
+                             pygame.Rect(2, 2, size - 4, size - 4), 1, border_radius=2)
+            tip = (cx + 2, cx + 2)
+            pygame.draw.line(surf, (200, 80, 80), (4, 4), tip, 2)
+            for dx, dy in ((3, 0), (-3, 0), (0, 3), (2, 2)):
+                pygame.draw.line(surf, (255, 220, 60),
+                                 tip, (tip[0] + dx, tip[1] + dy), 1)
+
+        elif cell_type == CellType.EXIT:
+            pygame.draw.rect(surf, (60, 25, 110),
+                             pygame.Rect(2, 2, size - 4, size - 4), border_radius=3)
+            pygame.draw.rect(surf, (180, 100, 255),
+                             pygame.Rect(2, 2, size - 4, size - 4), 1, border_radius=3)
+            # Up arrow
+            pygame.draw.polygon(surf, (200, 150, 255),
+                                [(cx, 4), (cx - 3, 9), (cx + 3, 9)])
+            pygame.draw.line(surf, (200, 150, 255), (cx, 9), (cx, size - 4), 1)
+
+        elif cell_type == CellType.CHARGING:
+            pygame.draw.rect(surf, (120, 100, 30),
+                             pygame.Rect(cx - 1, 2, 3, size - 8), border_radius=1)
+            bx, by = cx, cx - 4
+            bolt = [
+                (bx + 2, by),     (bx,     by + 4),
+                (bx + 2, by + 4), (bx - 2, by + 8),
+                (bx,     by + 4), (bx - 2, by + 4),
+            ]
+            pygame.draw.polygon(surf, (255, 220, 0), bolt)
+            pygame.draw.rect(surf, (180, 140, 40),
+                             pygame.Rect(2, size - 5, size - 4, 3), border_radius=1)
+
+        self._screen.blit(surf, rect.topleft)
 
     def _draw_task_markers(self, tasks: List[Task]) -> None:
         for task in tasks:
@@ -187,20 +451,79 @@ class PygameRenderer:
 
     def _draw_agvs(self, agvs: List[AGV]) -> None:
         for agv in agvs:
-            rect   = self._cell_rect(*agv.position)
-            color  = _AGV_STATUS_COLORS[agv.status]
-            radius = self.CELL_SIZE // 2 - 3
-
-            # Body
-            pygame.draw.circle(self._screen, color, rect.center, radius)
-            pygame.draw.circle(self._screen, (255, 255, 255), rect.center, radius, 2)
-
-            # AGV id label
-            label = self._font_md.render(str(agv.id), True, (20, 20, 20))
-            self._screen.blit(label, label.get_rect(center=rect.center))
-
-            # Battery bar below the cell
+            rect = self._cell_rect(*agv.position)
+            self._draw_agv_sprite(rect, agv)
             self._draw_battery_bar(rect, agv.battery)
+
+    def _draw_agv_sprite(self, cell_rect: pygame.Rect, agv: AGV) -> None:
+        """
+        Draws an AGV as a small forklift-style vehicle sprite using Pygame primitives.
+
+        Layout (fits within CELL_SIZE x CELL_SIZE):
+          - Chassis: rounded rectangle, color-coded by status
+          - 4 wheels: dark rounded squares at corners
+          - Fork / cargo indicator: front protrusion (top of cell = north)
+          - Status stripe: thin colored bar on the roof
+          - ID label: centered on chassis
+        """
+        cs   = self.CELL_SIZE
+        cx   = cell_rect.centerx
+        cy   = cell_rect.centery
+        color = _AGV_STATUS_COLORS[agv.status]
+
+        # --- dimensions ---
+        body_w = cs - 8
+        body_h = cs - 10
+        body_x = cell_rect.x + 4
+        body_y = cell_rect.y + 5
+
+        wheel_size = 5
+        wheel_color = (30, 30, 30)
+
+        # --- chassis shadow ---
+        shadow_rect = pygame.Rect(body_x + 2, body_y + 2, body_w, body_h)
+        pygame.draw.rect(self._screen, (20, 20, 20), shadow_rect, border_radius=4)
+
+        # --- chassis body ---
+        body_rect = pygame.Rect(body_x, body_y, body_w, body_h)
+        pygame.draw.rect(self._screen, color, body_rect, border_radius=4)
+
+        # --- chassis outline ---
+        pygame.draw.rect(self._screen, (255, 255, 255), body_rect, 1, border_radius=4)
+
+        # --- roof stripe (status color darkened) ---
+        stripe_color = tuple(max(0, c - 60) for c in color)
+        stripe_rect  = pygame.Rect(body_x + 4, body_y + 2, body_w - 8, 4)
+        pygame.draw.rect(self._screen, stripe_color, stripe_rect, border_radius=2)
+
+        # --- 4 wheels ---
+        wheel_offsets = [
+            (body_x,                   body_y),                    # top-left
+            (body_x + body_w - wheel_size, body_y),                # top-right
+            (body_x,                   body_y + body_h - wheel_size),  # bottom-left
+            (body_x + body_w - wheel_size, body_y + body_h - wheel_size),  # bottom-right
+        ]
+        for wx, wy in wheel_offsets:
+            pygame.draw.rect(self._screen, wheel_color,
+                             pygame.Rect(wx, wy, wheel_size, wheel_size),
+                             border_radius=2)
+
+        # --- fork prongs at the top (direction indicator) ---
+        fork_color = (200, 200, 200)
+        prong_y    = body_y - 3
+        for prong_x in (cx - 5, cx + 2):
+            pygame.draw.rect(self._screen, fork_color,
+                             pygame.Rect(prong_x, prong_y, 3, 5))
+
+        # --- cargo indicator: filled rect when carrying a task ---
+        if agv.task_id is not None:
+            cargo_rect = pygame.Rect(body_x + 6, body_y + body_h // 2 - 3, body_w - 12, 8)
+            pygame.draw.rect(self._screen, (255, 220, 80), cargo_rect, border_radius=2)
+
+        # --- AGV id label ---
+        label = self._font_sm.render(str(agv.id), True, (10, 10, 10))
+        label_rect = label.get_rect(center=(cx, cy + 4))
+        self._screen.blit(label, label_rect)
 
     def _draw_battery_bar(self, cell_rect: pygame.Rect, battery: float) -> None:
         bar_w  = self.CELL_SIZE - 6
@@ -210,12 +533,13 @@ class PygameRenderer:
         # Background
         pygame.draw.rect(self._screen, (60, 60, 60),
                          pygame.Rect(bar_x, bar_y, bar_w, bar_h))
-        # Fill
-        fill_color = (
-            (80, 200, 80)  if battery > 0.5 else
-            (220, 180, 0)  if battery > 0.2 else
-            (220, 60, 60)
-        )
+        # Fill color based on charge level
+        if battery > 0.5:
+            fill_color = (80, 200, 80)
+        elif battery > 0.2:
+            fill_color = (220, 180, 0)
+        else:
+            fill_color = (220, 60, 60)
         pygame.draw.rect(self._screen, fill_color,
                          pygame.Rect(bar_x, bar_y, int(bar_w * battery), bar_h))
 
@@ -273,20 +597,30 @@ class PygameRenderer:
             y += bat_surf.get_height() + 4
         separator()
 
-        # Cell legend
+        # Cell legend — mini sprites
         text("CELL LEGEND", color=_COLOR_TEXT_DIM)
         legend_cells = [
-            ("M  Manufacturing",  _CELL_COLORS[CellType.MANUFACTURING]),
-            ("E  Entry / Exit",   _CELL_COLORS[CellType.ENTRY_EXIT]),
-            ("C  Charging",       _CELL_COLORS[CellType.CHARGING]),
-            ("#  Obstacle",       _CELL_COLORS[CellType.OBSTACLE]),
+            (CellType.ENTRY,    "Entry (raw material)"),
+            (CellType.STAMPING, "Stamping press"),
+            (CellType.BUFFER,   "Buffer / WIP"),
+            (CellType.WELDING,  "Welding station"),
+            (CellType.EXIT,     "Exit (finished)"),
+            (CellType.CHARGING, "AGV Charging"),
+            (CellType.OBSTACLE, "Obstacle"),
         ]
-        for label, color in legend_cells:
-            pygame.draw.rect(self._screen, color,
-                             pygame.Rect(panel_x + 12, y + 2, 10, 10))
-            surf = self._font_sm.render(f"   {label}", True, _COLOR_TEXT)
-            self._screen.blit(surf, (panel_x + 12, y))
-            y += 16
+        icon_size = 20
+        for cell_type, label in legend_cells:
+            icon_x = panel_x + 12
+            icon_rect = pygame.Rect(icon_x, y, icon_size, icon_size)
+            # Background fill
+            pygame.draw.rect(self._screen, _CELL_COLORS[cell_type], icon_rect, border_radius=2)
+            pygame.draw.rect(self._screen, (80, 80, 80), icon_rect, 1, border_radius=2)
+            # Sprite drawn at icon scale
+            if cell_type != CellType.OBSTACLE:
+                self._draw_cell_sprite_scaled(cell_type, icon_rect)
+            surf = self._font_sm.render(f"  {label}", True, _COLOR_TEXT)
+            self._screen.blit(surf, (icon_x + icon_size + 4, y + 3))
+            y += icon_size + 4
         separator()
 
         # Status legend
