@@ -109,7 +109,8 @@ class PygameRenderer:
     # Grid starts at x = LEFT_PANEL_W
     GRID_X = LEFT_PANEL_W
 
-    def __init__(self, title: str = "AGV Fleet — RL vs A* Baseline", fps: int = 10):
+    def __init__(self, title: str = "AGV Fleet — RL vs A* Baseline", fps: int = 10,
+                 agent_label: str = ""):
         pygame.init()
         pygame.display.set_caption(title)
         self._screen = pygame.display.set_mode((self.WINDOW_W, self.WINDOW_H))
@@ -120,8 +121,10 @@ class PygameRenderer:
         self._font_xs  = pygame.font.SysFont("consolas", 11)
 
         # --- Simulation state ---
-        self._paused = False
-        self.fps     = fps
+        self._paused     = False
+        self.fps         = fps
+        self.episode     = 1
+        self.agent_label = agent_label
 
         # --- Display toggles ---
         self.show_task_markers = True
@@ -510,6 +513,9 @@ class PygameRenderer:
             y += 10
 
         text("AGV Fleet Sim", color=_COLOR_ACCENT, font=self._font_lg)
+        text(f"  Episode   {self.episode}", color=_COLOR_TEXT)
+        if self.agent_label:
+            text(f"  Agent     {self.agent_label}", color=_COLOR_TEXT_DIM)
         separator()
 
         text("METRICS", color=_COLOR_TEXT_DIM)

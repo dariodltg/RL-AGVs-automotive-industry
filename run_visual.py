@@ -84,7 +84,7 @@ def _handle_episode_end(env, agent, episode: int, info: dict, max_eps: int) -> t
 
 def _run_loop(env, agent, renderer, max_eps: int) -> None:
     """Main simulation loop. Runs until quit signal or max_eps reached."""
-    episode = 1
+    renderer.episode = 1
     _reset_episode(env, agent)
 
     while True:
@@ -93,12 +93,14 @@ def _run_loop(env, agent, renderer, max_eps: int) -> None:
             break
         if signal == "reset":
             _reset_episode(env, agent)
-            episode += 1
+            renderer.episode += 1
 
         if not renderer.paused:
             done, info = _step(env, agent)
             if done:
-                quit_loop, episode = _handle_episode_end(env, agent, episode, info, max_eps)
+                quit_loop, renderer.episode = _handle_episode_end(
+                    env, agent, renderer.episode, info, max_eps
+                )
                 if quit_loop:
                     break
 
@@ -117,7 +119,8 @@ def main() -> None:
     )
     agent = build_agent(args, env)
     agent_label = {"astar": "A*+Greedy", "ppo": f"PPO ({args.model})", "random": "Random"}[args.agent]
-    renderer = PygameRenderer(title=f"AGV Fleet — {agent_label}", fps=args.fps)
+    renderer = PygameRenderer(title=f"AGV Fleet — {agent_label}", fps=args.fps,
+                              agent_label=agent_label)
 
     print(f"Agent    : {agent_label}")
     print(f"FPS      : {args.fps}  (UP/DOWN to change in window)")
