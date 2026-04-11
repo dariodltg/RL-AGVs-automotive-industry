@@ -134,14 +134,44 @@ Smoke test PASSED
 
 ![Pygame interface](docs/imgs/pygame_interface.png)
 
-Runs the environment in real time with a 2D grid renderer:
+Runs the environment in real time with a 2D grid renderer. The window is split into two panels:
+
+**Left — plant grid (20×20)**
+
+Each cell is rendered with a sprite indicating its type. AGVs are drawn as forklift icons on top of the grid. Two markers appear on the floor to indicate active task targets:
+
+| Marker | Meaning           |
+| ------ | ----------------- |
+| Red dot    | Task pickup location  |
+| Green dot  | Task delivery location |
+
+**Right — metrics and status panel**
+
+| Section      | Content                                                                 |
+| ------------ | ----------------------------------------------------------------------- |
+| **METRICS**  | Episode step count, tasks completed/pending, collisions, average cycle time, mean fleet utilization |
+| **AGVs**     | Per-AGV status (color-coded) and battery level                          |
+| **CELL LEGEND** | Sprite reference for every cell type in the plant                    |
+| **AGV STATUS**  | Color legend for each AGV operating state                            |
+
+AGV status colors:
+
+| Color  | State               |
+| ------ | ------------------- |
+| Grey   | Idle                |
+| Orange | Moving to pickup    |
+| Green  | Loading             |
+| Red    | Moving to delivery  |
+| Cyan   | Unloading           |
+| Yellow | Charging            |
 
 ```bash
-python run_visual.py                   # AStarAgent at 10 fps (default)
-python run_visual.py --agent random    # random actions
-python run_visual.py --fps 20          # faster simulation
-python run_visual.py --n_agvs 4        # number of AGVs
-python run_visual.py --episodes 5      # stop after 5 episodes
+python run_visual.py                             # AStarAgent at 10 fps (default)
+python run_visual.py --agent random              # random actions
+python run_visual.py --agent ppo --model <path>  # trained PPO model
+python run_visual.py --fps 20                    # faster simulation
+python run_visual.py --n_agvs 4                  # number of AGVs
+python run_visual.py --episodes 5                # stop after 5 episodes
 ```
 
 Window controls:
