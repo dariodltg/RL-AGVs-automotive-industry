@@ -20,8 +20,6 @@ Controls (in window):
 import argparse
 import sys
 
-import pygame
-
 from src.env import AGVFleetEnv
 from src.agents import AStarAgent, PPOAgent
 from src.rendering import PygameRenderer
@@ -68,15 +66,6 @@ def _log_episode(episode: int, info: dict) -> None:
     )
 
 
-def _update_fps(fps: int) -> int:
-    keys = pygame.key.get_pressed()
-    if keys[pygame.K_UP]:
-        return min(fps + 1, 60)
-    if keys[pygame.K_DOWN]:
-        return max(fps - 1, 1)
-    return fps
-
-
 def _step(env, agent) -> tuple:
     """Execute one environment step and return (done, info)."""
     action = agent.select_action(env) if agent else env.action_space.sample()
@@ -93,7 +82,7 @@ def _handle_episode_end(env, agent, episode: int, info: dict, max_eps: int) -> t
     return False, episode + 1
 
 
-def _run_loop(env, agent, renderer, fps: int, max_eps: int) -> None:
+def _run_loop(env, agent, renderer, max_eps: int) -> None:
     """Main simulation loop. Runs until quit signal or max_eps reached."""
     episode = 1
     _reset_episode(env, agent)
@@ -106,8 +95,6 @@ def _run_loop(env, agent, renderer, fps: int, max_eps: int) -> None:
             _reset_episode(env, agent)
             episode += 1
 
-        fps = _update_fps(fps)
-
         if not renderer.paused:
             done, info = _step(env, agent)
             if done:
@@ -116,7 +103,7 @@ def _run_loop(env, agent, renderer, fps: int, max_eps: int) -> None:
                     break
 
         renderer.render(env)
-        renderer.tick(fps)
+        renderer.tick()
 
 
 def main() -> None:
@@ -130,14 +117,14 @@ def main() -> None:
     )
     agent = build_agent(args, env)
     agent_label = {"astar": "A*+Greedy", "ppo": f"PPO ({args.model})", "random": "Random"}[args.agent]
-    renderer = PygameRenderer(title=f"AGV Fleet — {agent_label}")
+    renderer = PygameRenderer(title=f"AGV Fleet — {agent_label}", fps=args.fps)
 
     print(f"Agent    : {agent_label}")
     print(f"FPS      : {args.fps}  (UP/DOWN to change in window)")
     print(f"Episodes : {'infinite' if args.episodes == 0 else args.episodes}")
     print("Controls : SPACE=pause  UP/DOWN=speed  R=reset  ESC/Q=quit\n")
 
-    _run_loop(env, agent, renderer, fps=args.fps, max_eps=args.episodes)
+    _run_loop(env, agent, renderer, max_eps=args.episodes)
 
     env.close()
     renderer.close()
