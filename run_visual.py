@@ -3,7 +3,7 @@ Visual demo — runs the AGV fleet environment with a selected agent
 and renders it in real time using Pygame.
 
 Usage:
-    python run_visual.py                             # AStarAgent, 10 fps
+    python run_visual.py                             # AStarAgent, 10 steps/s
     python run_visual.py --agent astar               # greedy A* baseline
     python run_visual.py --agent random              # random actions
     python run_visual.py --agent ppo --model <path>  # trained PPO model
@@ -49,10 +49,8 @@ def build_agent(args, env: AGVFleetEnv):
     return None   # random
 
 
-def _reset_episode(env, agent):
-    env.reset()
-    if agent:
-        agent.reset()
+def _select_action(env, agent):
+    return agent.select_action(env) if agent else env.action_space.sample()
 
 
 def _log_episode(episode: int, info: dict) -> None:
@@ -66,43 +64,43 @@ def _log_episode(episode: int, info: dict) -> None:
     )
 
 
-def _step(env, agent) -> tuple:
-    """Execute one environment step and return (done, info)."""
-    action = agent.select_action(env) if agent else env.action_space.sample()
-    _, _, terminated, truncated, info = env.step(action)
-    return terminated or truncated, info
-
-
-def _handle_episode_end(env, agent, episode: int, info: dict, max_eps: int) -> tuple:
-    """Log episode, reset, return (should_quit, new_episode)."""
-    _log_episode(episode, info)
-    if max_eps > 0 and episode >= max_eps:
-        return True, episode
-    _reset_episode(env, agent)
-    return False, episode + 1
+def _reset(env, agent, renderer) -> None:
+    env.reset()
+    if agent:
+        agent.reset()
+    renderer.reset_animation(env)
 
 
 def _run_loop(env, agent, renderer, max_eps: int) -> None:
-    """Main simulation loop. Runs until quit signal or max_eps reached."""
     renderer.episode = 1
-    _reset_episode(env, agent)
+    _reset(env, agent, renderer)
+
+    done = False
+    info = {}
 
     while True:
         signal = renderer.handle_events()
         if signal == "quit":
             break
         if signal == "reset":
-            _reset_episode(env, agent)
+            _reset(env, agent, renderer)
             renderer.episode += 1
+            done = False
 
-        if not renderer.paused:
-            done, info = _step(env, agent)
+        if not renderer.paused and renderer.should_step():
             if done:
-                quit_loop, renderer.episode = _handle_episode_end(
-                    env, agent, renderer.episode, info, max_eps
-                )
-                if quit_loop:
+                _log_episode(renderer.episode, info)
+                if max_eps > 0 and renderer.episode >= max_eps:
                     break
+                _reset(env, agent, renderer)
+                renderer.episode += 1
+                done = False
+            else:
+                renderer.pre_step(env)
+                action = _select_action(env, agent)
+                _, _, terminated, truncated, info = env.step(action)
+                renderer.notify_step(env)
+                done = terminated or truncated
 
         renderer.render(env)
         renderer.tick()
@@ -118,12 +116,20 @@ def main() -> None:
         seed=args.seed,
     )
     agent = build_agent(args, env)
-    agent_label = {"astar": "A*+Greedy", "ppo": f"PPO ({args.model})", "random": "Random"}[args.agent]
-    renderer = PygameRenderer(title=f"AGV Fleet — {agent_label}", fps=args.fps,
-                              agent_label=agent_label)
+    agent_label = {
+        "astar":  "A*+Greedy",
+        "ppo":    f"PPO ({args.model})",
+        "random": "Random",
+    }[args.agent]
+
+    renderer = PygameRenderer(
+        title=f"AGV Fleet — {agent_label}",
+        fps=args.fps,
+        agent_label=agent_label,
+    )
 
     print(f"Agent    : {agent_label}")
-    print(f"FPS      : {args.fps}  (UP/DOWN to change in window)")
+    print(f"Sim speed: {args.fps} steps/s  (UP/DOWN to change)")
     print(f"Episodes : {'infinite' if args.episodes == 0 else args.episodes}")
     print("Controls : SPACE=pause  UP/DOWN=speed  R=reset  ESC/Q=quit\n")
 
