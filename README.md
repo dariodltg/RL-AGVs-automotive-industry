@@ -58,16 +58,16 @@ src/
 
 20×20 grid with dedicated zones for each production stage:
 
-| Symbol | Cell type | Color | Description |
-| ------ | --------- | ----- | ----------- |
-| `I` | ENTRY    | <img src="docs/imgs/circles/entry.svg" width="14"/> `#32B464` | Raw material input |
-| `S` | STAMPING | <img src="docs/imgs/circles/stamping.svg" width="14"/> `#4682C8` | Stamping press cells |
-| `B` | BUFFER   | <img src="docs/imgs/circles/buffer.svg" width="14"/> `#B48232` | WIP intermediate storage |
-| `W` | WELDING  | <img src="docs/imgs/circles/welding.svg" width="14"/> `#C84646` | Welding station cells |
-| `O` | EXIT     | <img src="docs/imgs/circles/exit.svg" width="14"/> `#783CC8` | Finished component output |
-| `C` | CHARGING | <img src="docs/imgs/circles/charging.svg" width="14"/> `#D2C81E` | AGV charging stations |
-| `#` | OBSTACLE | <img src="docs/imgs/circles/obstacle.svg" width="14"/> `#2D2D2D` | Walls and fixed machinery |
-| `.` | FREE     | <img src="docs/imgs/circles/free.svg" width="14"/> `#D2D2D2` | AGV circulation corridors |
+| Symbol | Sprite | Cell type | Description |
+| ------ | ------ | --------- | ----------- |
+| `I` | <img src="docs/imgs/sprites/entry.png" width="28"/> | ENTRY | Raw material input |
+| `S` | <img src="docs/imgs/sprites/stamping.png" width="28"/> | STAMPING | Stamping press cells |
+| `B` | <img src="docs/imgs/sprites/buffer.png" width="28"/> | BUFFER | WIP intermediate storage |
+| `W` | <img src="docs/imgs/sprites/welding.png" width="28"/> | WELDING | Welding station cells |
+| `O` | <img src="docs/imgs/sprites/exit.png" width="28"/> | EXIT | Finished component output |
+| `C` | <img src="docs/imgs/sprites/charging.png" width="28"/> | CHARGING | AGV charging stations |
+| `#` | <img src="docs/imgs/sprites/obstacle.png" width="28"/> | OBSTACLE | Walls and fixed machinery |
+| `.` | <img src="docs/imgs/sprites/free.png" width="28"/> | FREE | AGV circulation corridors |
 
 ---
 
@@ -159,18 +159,18 @@ Each cell is rendered with a sprite matching its type. AGVs are drawn as forklif
 | **CELL LEGEND** | Sprite reference for every cell type in the plant |
 | **AGV STATUS** | Color legend for each operating state |
 
-Cell type colors:
+Cell types:
 
-| Color | Cell type | Description |
-| ----- | --------- | ----------- |
-| <img src="docs/imgs/circles/entry.svg" width="14"/> `#32B464` | ENTRY | Raw material input |
-| <img src="docs/imgs/circles/stamping.svg" width="14"/> `#4682C8` | STAMPING | Stamping press cells |
-| <img src="docs/imgs/circles/buffer.svg" width="14"/> `#B48232` | BUFFER | WIP intermediate storage |
-| <img src="docs/imgs/circles/welding.svg" width="14"/> `#C84646` | WELDING | Welding station cells |
-| <img src="docs/imgs/circles/exit.svg" width="14"/> `#783CC8` | EXIT | Finished component output |
-| <img src="docs/imgs/circles/charging.svg" width="14"/> `#D2C81E` | CHARGING | AGV charging stations |
-| <img src="docs/imgs/circles/obstacle.svg" width="14"/> `#2D2D2D` | OBSTACLE | Walls and fixed machinery |
-| <img src="docs/imgs/circles/free.svg" width="14"/> `#D2D2D2` | FREE | AGV circulation corridors |
+| Sprite | Cell type | Description |
+| ------ | --------- | ----------- |
+| <img src="docs/imgs/sprites/entry.png" width="28"/> | ENTRY | Raw material input |
+| <img src="docs/imgs/sprites/stamping.png" width="28"/> | STAMPING | Stamping press cells |
+| <img src="docs/imgs/sprites/buffer.png" width="28"/> | BUFFER | WIP intermediate storage |
+| <img src="docs/imgs/sprites/welding.png" width="28"/> | WELDING | Welding station cells |
+| <img src="docs/imgs/sprites/exit.png" width="28"/> | EXIT | Finished component output |
+| <img src="docs/imgs/sprites/charging.png" width="28"/> | CHARGING | AGV charging stations |
+| <img src="docs/imgs/sprites/obstacle.png" width="28"/> | OBSTACLE | Walls and fixed machinery |
+| <img src="docs/imgs/sprites/free.png" width="28"/> | FREE | AGV circulation corridors |
 
 AGV status colors:
 
