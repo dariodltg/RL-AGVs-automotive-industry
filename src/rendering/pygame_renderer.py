@@ -127,6 +127,19 @@ class PygameRenderer:
             agv_img, (self.CELL_SIZE, self.CELL_SIZE)
         )
 
+        # Last known heading per AGV id: (row_delta, col_delta)
+        # Default facing down (south). Updated each frame when the AGV is moving.
+        self._agv_heading: Dict[int, Tuple[int, int]] = {}
+
+        # Rotation angle for each heading direction
+        # Sprite is drawn facing south (down) by default
+        self._heading_angle: Dict[Tuple[int, int], float] = {
+            ( 1,  0):   0,    # south  (down)  — default orientation
+            (-1,  0): 180,    # north  (up)
+            ( 0,  1): -90,    # east   (right)
+            ( 0, -1):  90,    # west   (left)
+        }
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -233,28 +246,43 @@ class PygameRenderer:
 
     def _draw_agv_sprite(self, cell_rect: pygame.Rect, agv: AGV) -> None:
         """
-        Draws an AGV using the base sprite tinted by the AGV's current status color.
+        Draws an AGV using the base sprite tinted by status color and rotated
+        to face the direction of travel.
 
-        The base sprite (agv_base.png) uses:
-          - White/grey for the body   → multiplied by status color
-          - Black/dark for wheels and outlines → stays dark regardless of tint
-        A cargo indicator (yellow rect) is drawn on top when the AGV has a task.
+        Direction is derived from agv.path[0] vs agv.position each frame.
+        The last known heading is cached so the sprite doesn't snap to default
+        when the AGV stops.
         """
         color = _AGV_STATUS_COLORS[agv.status]
         cx    = cell_rect.centerx
         cy    = cell_rect.centery
 
-        # Copy base sprite and apply status color tint preserving alpha
+        # Update heading if the AGV is actively moving
+        if agv.path:
+            next_pos = agv.path[0]
+            heading  = (next_pos[0] - agv.position[0],
+                        next_pos[1] - agv.position[1])
+            if heading in self._heading_angle:
+                self._agv_heading[agv.id] = heading
+
+        heading = self._agv_heading.get(agv.id, (1, 0))
+        angle   = self._heading_angle.get(heading, 0)
+
+        # Tint base sprite with status color preserving alpha
         tinted = self._agv_base.copy()
         tinted.fill((*color, 255), special_flags=pygame.BLEND_RGBA_MULT)
-        self._screen.blit(tinted, cell_rect.topleft)
 
-        # Cargo indicator: yellow rect in the center when carrying a task
+        # Rotate around center
+        rotated = pygame.transform.rotate(tinted, angle)
+        rot_rect = rotated.get_rect(center=cell_rect.center)
+        self._screen.blit(rotated, rot_rect.topleft)
+
+        # Cargo indicator: yellow rect when carrying a task
         if agv.task_id is not None:
-            cs     = self.CELL_SIZE
-            cw     = cs - 14
-            ch     = max(4, cs // 6)
-            crect  = pygame.Rect(cell_rect.x + 7, cy - ch // 2, cw, ch)
+            cs    = self.CELL_SIZE
+            cw    = cs - 14
+            ch    = max(4, cs // 6)
+            crect = pygame.Rect(cell_rect.x + 7, cy - ch // 2, cw, ch)
             pygame.draw.rect(self._screen, (255, 220, 60), crect, border_radius=2)
 
         # ID label
