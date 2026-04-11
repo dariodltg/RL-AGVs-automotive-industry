@@ -132,6 +132,8 @@ Smoke test PASSED
 
 ## Visual demo (Pygame)
 
+![Pygame interface](docs/imgs/pygame_interface.png)
+
 Runs the environment in real time with a 2D grid renderer:
 
 ```bash
