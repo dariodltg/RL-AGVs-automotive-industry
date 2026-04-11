@@ -217,6 +217,10 @@ class PygameRenderer:
         self._particles:       List[_Particle] = []
         self._known_completed: Set[int]         = set()
 
+        # Path preview — ids of AGVs with path overlay active
+        self._selected_agvs: Set[int]  = set()
+        self._last_agvs:     List[AGV] = []      # snapshot from last render()
+
         self._buttons: List[Dict] = []
 
     # ------------------------------------------------------------------
@@ -318,6 +322,7 @@ class PygameRenderer:
         self._time_since_step = 0.0
         self._particles.clear()
         self._known_completed.clear()
+        self._selected_agvs.clear()
         for agv in env.agvs:
             self._prev_pos[agv.id] = agv.position
             self._anim_t[agv.id]   = 1.0
@@ -434,6 +439,21 @@ class PygameRenderer:
              "action": "toggle_battery",  "toggle": True, "state_attr": "show_battery_bars"},
         ]
 
+        # Per-AGV path preview toggles (dynamic — depends on fleet size)
+        path_start = 12
+        agv_colors: Dict[int, Tuple[int, int, int]] = {
+            a.id: _AGV_STATUS_COLORS[a.status] for a in self._last_agvs
+        }
+        for i, agv in enumerate(self._last_agvs):
+            self._buttons.append({
+                "label":        f"AGV {agv.id} path",
+                "rect":         pygame.Rect(px, y(path_start + i), bw, bh),
+                "action":       f"path_agv_{agv.id}",
+                "toggle":       True,
+                "agv_id":       agv.id,
+                "active_color": agv_colors[agv.id],
+            })
+
     # ------------------------------------------------------------------
     # Dividers
     # ------------------------------------------------------------------
@@ -487,6 +507,7 @@ class PygameRenderer:
                 elif self._near_right_divider(mx):
                     self._drag_right = True
                 else:
+                    self._handle_grid_click(pygame.mouse.get_pos())
                     result = self._handle_button_click(pygame.mouse.get_pos())
                     if result == "reset":
                         return "reset"
@@ -534,9 +555,16 @@ class PygameRenderer:
             elif action in _toggle_attrs:
                 setattr(self, _toggle_attrs[action],
                         not getattr(self, _toggle_attrs[action]))
+            elif action.startswith("path_agv_"):
+                agv_id = btn["agv_id"]
+                if agv_id in self._selected_agvs:
+                    self._selected_agvs.discard(agv_id)
+                else:
+                    self._selected_agvs.add(agv_id)
         return None
 
     def render(self, env: AGVFleetEnv) -> None:
+        self._last_agvs = env.agvs          # cache for _handle_grid_click
         self._refresh_sprites()
         self._build_buttons()
         self._screen.fill(_COLOR_BG)
@@ -544,6 +572,7 @@ class PygameRenderer:
         self._draw_grid(env.plant)
         if self.show_task_markers:
             self._draw_task_markers(env.tasks)
+        self._draw_path_preview(env.agvs)
         self._draw_agvs(env.agvs)
         self._draw_particles()
         self._draw_right_panel(env)
@@ -586,7 +615,8 @@ class PygameRenderer:
             self._font_md.render(f"SIM: {self.fps:>2}/s", True, _COLOR_TEXT),
             (10, 16 + bh + 8))
 
-        for row, label in {4: "SIMULATION", 7: "DISPLAY"}.items():
+        section_rows = {4: "SIMULATION", 7: "DISPLAY", 12: "PATH PREVIEW"}
+        for row, label in section_rows.items():
             sy = 16 + row * (bh + 8) - 14
             self._screen.blit(
                 self._font_xs.render(label, True, _COLOR_TEXT_DIM), (10, sy))
@@ -594,12 +624,16 @@ class PygameRenderer:
         for btn in self._buttons:
             rect    = btn["rect"]
             hovered = rect.collidepoint(mouse_pos)
-            if btn["toggle"] and getattr(self, btn.get("state_attr", ""), False):
-                bg = _COLOR_BTN_ACTIVE
-            elif hovered:
-                bg = _COLOR_BTN_HOVER
+            # Determine active state
+            if btn["toggle"]:
+                if "agv_id" in btn:
+                    active = btn["agv_id"] in self._selected_agvs
+                else:
+                    active = getattr(self, btn.get("state_attr", ""), False)
             else:
-                bg = _COLOR_BTN_BG
+                active = False
+            active_color = btn.get("active_color", _COLOR_BTN_ACTIVE)
+            bg = active_color if active else (_COLOR_BTN_HOVER if hovered else _COLOR_BTN_BG)
             pygame.draw.rect(self._screen, bg, rect, border_radius=4)
             pygame.draw.rect(self._screen, _COLOR_BTN_BORDER, rect, 1, border_radius=4)
             lbl = self._font_sm.render(btn["label"], True, _COLOR_TEXT)
@@ -636,6 +670,76 @@ class PygameRenderer:
                                rect.topleft)
         else:
             pygame.draw.rect(self._screen, _CELL_COLORS[cell_type], rect)
+
+    # ------------------------------------------------------------------
+    # Path preview
+    # ------------------------------------------------------------------
+
+    def _handle_grid_click(self, pos: Tuple[int, int]) -> None:
+        """Toggle path preview for the AGV under the click."""
+        px, py = pos
+        cs = self._cell_size
+        gx = self._grid_x
+        gp = self._grid_pixels
+        if not (gx <= px < gx + gp and _TOP_MARGIN <= py < _TOP_MARGIN + gp):
+            return
+        col = (px - gx) // cs
+        row = (py - _TOP_MARGIN) // cs
+        if not (0 <= row < PlantMap.GRID_SIZE and 0 <= col < PlantMap.GRID_SIZE):
+            return
+        for agv in self._last_agvs:
+            if agv.position == (row, col):
+                if agv.id in self._selected_agvs:
+                    self._selected_agvs.discard(agv.id)
+                else:
+                    self._selected_agvs.add(agv.id)
+                return
+
+    def _draw_path_preview(self, agvs: List[AGV]) -> None:
+        """Draw the planned path overlay for every AGV whose preview is active."""
+        if not self._selected_agvs:
+            return
+
+        line_surf = pygame.Surface((self._win_w, self._win_h), pygame.SRCALPHA)
+        cs        = self._cell_size
+        thickness = max(2, cs // 12)
+        dot_r     = max(2, cs // 8)
+        ring_r    = max(4, cs // 4)
+
+        for agv in agvs:
+            if agv.id not in self._selected_agvs:
+                continue
+            if not agv.path:
+                continue
+
+            color = _AGV_STATUS_COLORS[agv.status]
+            start_px, start_py = self._agv_pixel_center(agv)
+            waypoints: List[Tuple[float, float]] = [(start_px, start_py)]
+            for cell in agv.path:
+                r = self._cell_rect(*cell)
+                waypoints.append((float(r.centerx), float(r.centery)))
+
+            # Semi-transparent line segments
+            for i in range(len(waypoints) - 1):
+                x1, y1 = int(waypoints[i][0]),     int(waypoints[i][1])
+                x2, y2 = int(waypoints[i + 1][0]), int(waypoints[i + 1][1])
+                pygame.draw.line(line_surf, (*color, 110), (x1, y1), (x2, y2), thickness)
+
+            # Dots at each waypoint (skip index 0 = AGV itself)
+            for i, (wpx, wpy) in enumerate(waypoints[1:]):
+                alpha    = max(60, 210 - i * 18)
+                dot_surf = pygame.Surface((dot_r * 2 + 2, dot_r * 2 + 2), pygame.SRCALPHA)
+                pygame.draw.circle(dot_surf, (*color, alpha), (dot_r + 1, dot_r + 1), dot_r)
+                line_surf.blit(dot_surf, (int(wpx) - dot_r - 1, int(wpy) - dot_r - 1))
+
+            # Destination ring at final waypoint
+            if len(waypoints) > 1:
+                dest_x, dest_y = int(waypoints[-1][0]), int(waypoints[-1][1])
+                ring_surf = pygame.Surface((ring_r * 2 + 4, ring_r * 2 + 4), pygame.SRCALPHA)
+                pygame.draw.circle(ring_surf, (*color, 210), (ring_r + 2, ring_r + 2), ring_r, 2)
+                line_surf.blit(ring_surf, (dest_x - ring_r - 2, dest_y - ring_r - 2))
+
+        self._screen.blit(line_surf, (0, 0))
 
     # ------------------------------------------------------------------
     # Task markers & AGVs
