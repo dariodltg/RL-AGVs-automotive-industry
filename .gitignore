@@ -44,7 +44,7 @@ logs/
 tensorboard/
 wandb/
 checkpoints/
-models/saved_models/
+models/
 *.ckpt
 *.pth
 *.h5
