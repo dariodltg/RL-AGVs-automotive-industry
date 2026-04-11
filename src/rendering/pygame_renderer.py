@@ -119,6 +119,13 @@ class PygameRenderer:
                 img, (self.CELL_SIZE, self.CELL_SIZE)
             )
 
+        # AGV base sprite (white/grey body — tinted at draw time by status color)
+        agv_path = os.path.join(_ASSETS_DIR, "..", "agv_base.png")
+        agv_img  = pygame.image.load(agv_path).convert()
+        self._agv_base: pygame.Surface = pygame.transform.scale(
+            agv_img, (self.CELL_SIZE, self.CELL_SIZE)
+        )
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -225,69 +232,32 @@ class PygameRenderer:
 
     def _draw_agv_sprite(self, cell_rect: pygame.Rect, agv: AGV) -> None:
         """
-        Draws an AGV as a small forklift-style vehicle sprite.
+        Draws an AGV using the base sprite tinted by the AGV's current status color.
 
-        Layout (fits within CELL_SIZE x CELL_SIZE):
-          - Chassis: rounded rectangle, color-coded by status
-          - 4 wheels: dark rounded squares at corners
-          - Fork prongs at top (direction indicator)
-          - Status stripe: thin colored bar on the roof
-          - Cargo indicator: yellow rect when carrying a task
-          - ID label: centered on chassis
+        The base sprite (agv_base.png) uses:
+          - White/grey for the body   → multiplied by status color
+          - Black/dark for wheels and outlines → stays dark regardless of tint
+        A cargo indicator (yellow rect) is drawn on top when the AGV has a task.
         """
-        cs    = self.CELL_SIZE
+        color = _AGV_STATUS_COLORS[agv.status]
         cx    = cell_rect.centerx
         cy    = cell_rect.centery
-        color = _AGV_STATUS_COLORS[agv.status]
 
-        body_w = cs - 8
-        body_h = cs - 10
-        body_x = cell_rect.x + 4
-        body_y = cell_rect.y + 5
+        # Copy base sprite and apply status color tint via BLEND_MULT
+        tinted = self._agv_base.copy()
+        tinted.fill(color, special_flags=pygame.BLEND_MULT)
+        self._screen.blit(tinted, cell_rect.topleft)
 
-        wheel_size  = 5
-        wheel_color = (30, 30, 30)
-
-        # Shadow
-        pygame.draw.rect(self._screen, (20, 20, 20),
-                         pygame.Rect(body_x + 2, body_y + 2, body_w, body_h),
-                         border_radius=4)
-        # Body
-        pygame.draw.rect(self._screen, color,
-                         pygame.Rect(body_x, body_y, body_w, body_h),
-                         border_radius=4)
-        # Outline
-        pygame.draw.rect(self._screen, (255, 255, 255),
-                         pygame.Rect(body_x, body_y, body_w, body_h),
-                         1, border_radius=4)
-        # Roof stripe
-        stripe_color = tuple(max(0, c - 60) for c in color)
-        pygame.draw.rect(self._screen, stripe_color,
-                         pygame.Rect(body_x + 4, body_y + 2, body_w - 8, 4),
-                         border_radius=2)
-        # Wheels
-        for wx, wy in [
-            (body_x,                       body_y),
-            (body_x + body_w - wheel_size, body_y),
-            (body_x,                       body_y + body_h - wheel_size),
-            (body_x + body_w - wheel_size, body_y + body_h - wheel_size),
-        ]:
-            pygame.draw.rect(self._screen, wheel_color,
-                             pygame.Rect(wx, wy, wheel_size, wheel_size),
-                             border_radius=2)
-        # Fork prongs
-        prong_y = body_y - 3
-        for prong_x in (cx - 5, cx + 2):
-            pygame.draw.rect(self._screen, (200, 200, 200),
-                             pygame.Rect(prong_x, prong_y, 3, 5))
-        # Cargo indicator
+        # Cargo indicator: yellow rect in the center when carrying a task
         if agv.task_id is not None:
-            pygame.draw.rect(self._screen, (255, 220, 80),
-                             pygame.Rect(body_x + 6, body_y + body_h // 2 - 3,
-                                         body_w - 12, 8),
-                             border_radius=2)
+            cs     = self.CELL_SIZE
+            cw     = cs - 14
+            ch     = max(4, cs // 6)
+            crect  = pygame.Rect(cell_rect.x + 7, cy - ch // 2, cw, ch)
+            pygame.draw.rect(self._screen, (255, 220, 60), crect, border_radius=2)
+
         # ID label
-        label = self._font_sm.render(str(agv.id), True, (10, 10, 10))
+        label = self._font_sm.render(str(agv.id), True, (255, 255, 255))
         self._screen.blit(label, label.get_rect(center=(cx, cy + 4)))
 
     def _draw_battery_bar(self, cell_rect: pygame.Rect, battery: float) -> None:
