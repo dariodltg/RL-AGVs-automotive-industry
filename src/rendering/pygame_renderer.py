@@ -120,8 +120,9 @@ class PygameRenderer:
             )
 
         # AGV base sprite (white/grey body — tinted at draw time by status color)
+        # Loaded with convert_alpha() to preserve transparency in the PNG
         agv_path = os.path.join(_ASSETS_DIR, "..", "agv_base.png")
-        agv_img  = pygame.image.load(agv_path).convert()
+        agv_img  = pygame.image.load(agv_path).convert_alpha()
         self._agv_base: pygame.Surface = pygame.transform.scale(
             agv_img, (self.CELL_SIZE, self.CELL_SIZE)
         )
@@ -243,9 +244,9 @@ class PygameRenderer:
         cx    = cell_rect.centerx
         cy    = cell_rect.centery
 
-        # Copy base sprite and apply status color tint via BLEND_MULT
+        # Copy base sprite and apply status color tint preserving alpha
         tinted = self._agv_base.copy()
-        tinted.fill(color, special_flags=pygame.BLEND_MULT)
+        tinted.fill((*color, 255), special_flags=pygame.BLEND_RGBA_MULT)
         self._screen.blit(tinted, cell_rect.topleft)
 
         # Cargo indicator: yellow rect in the center when carrying a task
