@@ -15,7 +15,7 @@ eggs/
 
 # Virtual environments
 venv/
-env/
+/env/
 .venv/
 .env/
 
