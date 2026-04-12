@@ -147,10 +147,10 @@ class PygameRenderer:
         title:       str = "AGV Fleet — RL vs A* Baseline",
         fps:         int = 10,
         agent_label: str = "",
-        win_w:       int = 1120,
-        win_h:       int = 690,
-        left_w:      int = 160,
-        right_w:     int = 280,
+        win_w:       int = 1500,
+        win_h:       int = 980,
+        left_w:      int = 220,
+        right_w:     int = 320,
     ):
         pygame.init()
         pygame.display.set_caption(title)
@@ -220,6 +220,11 @@ class PygameRenderer:
         # Path preview — ids of AGVs with path overlay active
         self._selected_agvs: Set[int]  = set()
         self._last_agvs:     List[AGV] = []      # snapshot from last render()
+
+        # Button hold-repeat (fps +/-)
+        self._held_action: Optional[str] = None
+        self._held_time:   float         = 0.0
+        self._held_next:   float         = 0.0
 
         self._buttons: List[Dict] = []
 
@@ -511,6 +516,7 @@ class PygameRenderer:
                     result = self._handle_button_click(pygame.mouse.get_pos())
                     if result == "reset":
                         return "reset"
+                    self._start_hold(pygame.mouse.get_pos())
 
             if event.type == pygame.MOUSEMOTION:
                 if self._drag_left:
@@ -524,6 +530,7 @@ class PygameRenderer:
             if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                 self._drag_left  = False
                 self._drag_right = False
+                self._held_action = None
 
         if self._drag_left or self._drag_right or \
            self._near_left_divider(mx) or self._near_right_divider(mx):
@@ -563,6 +570,22 @@ class PygameRenderer:
                     self._selected_agvs.add(agv_id)
         return None
 
+    def _start_hold(self, pos: Tuple[int, int]) -> None:
+        """Record which fps button (if any) is being held down."""
+        for btn in self._buttons:
+            if btn["action"] in ("fps_up", "fps_down") and btn["rect"].collidepoint(pos):
+                self._held_action = btn["action"]
+                self._held_time   = 0.0
+                self._held_next   = 0.4   # initial delay before first repeat
+                return
+        self._held_action = None
+
+    def _apply_fps_action(self, action: str) -> None:
+        if action == "fps_up":
+            self.fps = min(self.fps + 1, 60)
+        elif action == "fps_down":
+            self.fps = max(self.fps - 1, 1)
+
     def render(self, env: AGVFleetEnv) -> None:
         self._last_agvs = env.agvs          # cache for _handle_grid_click
         self._refresh_sprites()
@@ -593,6 +616,15 @@ class PygameRenderer:
         # Accumulate time for sim stepping
         if not self._paused:
             self._time_since_step += self._dt
+
+        # Hold-repeat for fps +/- buttons
+        if self._held_action:
+            self._held_time += self._dt
+            self._held_next -= self._dt
+            if self._held_next <= 0:
+                self._apply_fps_action(self._held_action)
+                # Slow repeat (0–1.5 s held) → every 100 ms; fast after → every 40 ms
+                self._held_next = 0.04 if self._held_time > 1.5 else 0.1
 
         self._update_particles()
 
