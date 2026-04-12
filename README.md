@@ -19,16 +19,16 @@ A fleet of Automated Guided Vehicles (AGVs) transports materials through the pro
 
 ## Production Flow
 
-```
+```text
 ENTRY → STAMPING → BUFFER → WELDING → EXIT
 ```
 
 | Stage | Pickup | Delivery | Description | Reward |
 | ----- | ------ | -------- | ----------- | ------ |
-| 0 | <img src="docs/imgs/circles/entry.svg" width="14"/> Entry | <img src="docs/imgs/circles/stamping.svg" width="14"/> Stamping | Raw sheet metal delivered to press cells | +10 |
-| 1 | <img src="docs/imgs/circles/stamping.svg" width="14"/> Stamping | <img src="docs/imgs/circles/buffer.svg" width="14"/> Buffer | Stamped parts moved to WIP storage | +12 |
-| 2 | <img src="docs/imgs/circles/buffer.svg" width="14"/> Buffer | <img src="docs/imgs/circles/welding.svg" width="14"/> Welding | Parts retrieved for welding | +14 |
-| 3 | <img src="docs/imgs/circles/welding.svg" width="14"/> Welding | <img src="docs/imgs/circles/exit.svg" width="14"/> Exit | Finished components sent to output | +16 |
+| 0 | Entry | Stamping | Raw sheet metal delivered to press cells | +10 |
+| 1 | Stamping | Buffer | Stamped parts moved to WIP storage | +12 |
+| 2 | Buffer | Welding | Parts retrieved for welding | +14 |
+| 3 | Welding | Exit | Finished components sent to output | +16 |
 
 Tasks are generated stochastically and weighted toward earlier stages (more raw material demand).
 Later-stage task completions yield higher reward to reflect production value.
@@ -37,7 +37,7 @@ Later-stage task completions yield higher reward to reflect production value.
 
 ## Project Structure
 
-```
+```text
 src/
 ├── env/
 │   ├── plant_map.py        # 20x20 grid — ENTRY/STAMPING/BUFFER/WELDING/EXIT/CHARGING layout
@@ -58,16 +58,16 @@ src/
 
 20×20 grid with dedicated zones for each production stage:
 
-| Symbol | Sprite | Cell type | Description |
-| ------ | ------ | --------- | ----------- |
-| `I` | <img src="docs/imgs/sprites/entry.png" width="28"/> | ENTRY | Raw material input |
-| `S` | <img src="docs/imgs/sprites/stamping.png" width="28"/> | STAMPING | Stamping press cells |
-| `B` | <img src="docs/imgs/sprites/buffer.png" width="28"/> | BUFFER | WIP intermediate storage |
-| `W` | <img src="docs/imgs/sprites/welding.png" width="28"/> | WELDING | Welding station cells |
-| `O` | <img src="docs/imgs/sprites/exit.png" width="28"/> | EXIT | Finished component output |
-| `C` | <img src="docs/imgs/sprites/charging.png" width="28"/> | CHARGING | AGV charging stations |
-| `#` | <img src="docs/imgs/sprites/obstacle.png" width="28"/> | OBSTACLE | Walls and fixed machinery |
-| `.` | <img src="docs/imgs/sprites/free.png" width="28"/> | FREE | AGV circulation corridors |
+| Symbol | Cell type | Description |
+| ------ | --------- | ----------- |
+| `I` | ENTRY | Raw material input |
+| `S` | STAMPING | Stamping press cells |
+| `B` | BUFFER | WIP intermediate storage |
+| `W` | WELDING | Welding station cells |
+| `O` | EXIT | Finished component output |
+| `C` | CHARGING | AGV charging stations |
+| `#` | OBSTACLE | Walls and fixed machinery |
+| `.` | FREE | AGV circulation corridors |
 
 ---
 
@@ -124,7 +124,7 @@ python smoke_test.py
 
 Expected output summary:
 
-```
+```text
 [1/5] PlantMap          — grid layout printed, cell counts and flow verified
 [2/5] Environment       — action/observation spaces printed
 [3/5] reset()           — observation shape and initial tasks verified
@@ -137,69 +137,89 @@ Smoke test PASSED
 
 ## Visual demo (Pygame)
 
-![Pygame interface](docs/imgs/pygame_interface.png)
+```bash
+python run_visual.py
+```
 
-Runs the environment in real time with a 2D grid renderer. The window is split into two panels:
+### Launch menu
 
-### Left — plant grid (20×20)
+![Launch menu](docs/imgs/simulation_pygame_main_menu.png)
 
-Each cell is rendered with a sprite matching its type. AGVs are drawn as forklift icons on top of the grid. Floor markers indicate active task targets:
+Before the simulation starts, a configuration screen is shown:
+
+| Field | Description |
+| ----- | ----------- |
+| **NUMBER OF AGVS** | Fleet size, from 1 to 8. Adjusted with `−` / `+`. |
+| **MAX EPISODES** | Number of episodes to run before stopping. `0` runs indefinitely. |
+| **LAYOUT** | Plant map layout. L1 is the default automotive plant. L2 and L3 are planned variants. |
+| **AGENT** | `A* + Greedy` — classical baseline; `Random` — random actions; `PPO` — load a trained model by entering its `.zip` path. |
+| **LAUNCH** | Starts the simulation with the selected settings. |
+| **QUIT** | Exits the application. |
+
+### Simulation window
+
+![Simulation](docs/imgs/simulation_pygame_experiment.png)
+
+The window has three areas: a left control panel, the plant grid in the center, and a right metrics panel.
+
+#### Left panel — controls
+
+| Section | Element | Description |
+| ------- | ------- | ----------- |
+| **Header** | `SIM: N/s` | Current simulation speed in steps per second. |
+| | `FPS −` / `FPS +` | Decrease or increase simulation speed. Hold the button for continuous repeat. |
+| **Simulation** | `PAUSE` | Freeze / resume the simulation. Dims the grid while paused. |
+| | `RESET` | End the current episode and start a new one. |
+| **Display** | `Task markers` | Show/hide pickup and delivery markers on the grid. |
+| | `Grid lines` | Show/hide the cell grid overlay. |
+| | `AGV IDs` | Show/hide the ID number rendered on each AGV. |
+| | `Battery bars` | Show/hide the battery indicator below each AGV. |
+| **Path preview** | `AGV N path` | Toggle the planned path overlay for each individual AGV. Clicking an AGV on the grid also toggles its path. |
+| **Footer** | Keyboard hints | Quick reference for `SPACE`, `R`, `ESC`. |
+
+#### Center — plant grid (20×20)
+
+Each cell is rendered with a sprite matching its type. AGVs are drawn as tinted forklift icons on top of the grid; the tint color reflects their current status. The panels on the left and right can be resized by dragging their dividers.
+
+**Task markers:**
 
 | Marker | Meaning |
 | ------ | ------- |
-| 🔴 Red dot | Task pickup location |
-| 🟢 Green dot | Task delivery location |
+| Red filled dot | Pickup location of a pending or assigned task |
+| Green ring | Delivery location of a task currently in progress |
 
-### Right — metrics and status panel
+**Path preview** (when enabled): a semi-transparent colored line traces the AGV's planned route, with dots at each waypoint fading toward the destination and a ring marking the final cell.
+
+**Particle effects:** a burst of colored sparks is emitted each time an AGV completes a pickup or delivery. The color varies by production stage.
+
+#### Right panel — metrics and status
 
 | Section | Content |
 | ------- | ------- |
-| **METRICS** | Episode step, tasks completed/pending, collisions, average cycle time, mean fleet utilization |
-| **AGVs** | Per-AGV status (color-coded) and battery level |
-| **CELL LEGEND** | Sprite reference for every cell type in the plant |
-| **AGV STATUS** | Color legend for each operating state |
+| **Header** | Episode number and active agent label. |
+| **METRICS** | Step count, tasks completed, tasks pending, collisions, average cycle time (steps), mean fleet utilization (%). |
+| **AGVs** | Per-AGV row showing current status (color-coded) and battery level. |
+| **CELL LEGEND** | Sprite reference for every cell type in the plant. |
+| **AGV STATUS** | Color legend for each operating state. |
+| **Task markers** | Reminder of the pickup (red dot) and delivery (green ring) marker shapes. |
 
-Cell types:
-
-| Sprite | Cell type | Description |
-| ------ | --------- | ----------- |
-| <img src="docs/imgs/sprites/entry.png" width="28"/> | ENTRY | Raw material input |
-| <img src="docs/imgs/sprites/stamping.png" width="28"/> | STAMPING | Stamping press cells |
-| <img src="docs/imgs/sprites/buffer.png" width="28"/> | BUFFER | WIP intermediate storage |
-| <img src="docs/imgs/sprites/welding.png" width="28"/> | WELDING | Welding station cells |
-| <img src="docs/imgs/sprites/exit.png" width="28"/> | EXIT | Finished component output |
-| <img src="docs/imgs/sprites/charging.png" width="28"/> | CHARGING | AGV charging stations |
-| <img src="docs/imgs/sprites/obstacle.png" width="28"/> | OBSTACLE | Walls and fixed machinery |
-| <img src="docs/imgs/sprites/free.png" width="28"/> | FREE | AGV circulation corridors |
-
-AGV status colors:
+**AGV status colors:**
 
 | Color | State |
 | ----- | ----- |
-| <img src="docs/imgs/circles/idle.svg" width="14"/> `#A0A0A0` | Idle |
-| <img src="docs/imgs/circles/moving_to_pickup.svg" width="14"/> `#FF8C00` | Moving to pickup |
-| <img src="docs/imgs/circles/loading.svg" width="14"/> `#28C828` | Loading |
-| <img src="docs/imgs/circles/moving_to_delivery.svg" width="14"/> `#DC3C3C` | Moving to delivery |
-| <img src="docs/imgs/circles/unloading.svg" width="14"/> `#00BEBE` | Unloading |
-| <img src="docs/imgs/circles/charging_agv.svg" width="14"/> `#DCD200` | Charging |
+| `#A0A0A0` | Idle |
+| `#FF8C00` | Moving to pickup |
+| `#28C828` | Loading |
+| `#DC3C3C` | Moving to delivery |
+| `#00BEBE` | Unloading |
+| `#DCD200` | Charging |
 
-### Commands
-
-```bash
-python run_visual.py                             # AStarAgent at 10 fps (default)
-python run_visual.py --agent random              # random actions
-python run_visual.py --agent ppo --model <path>  # trained PPO model
-python run_visual.py --fps 20                    # faster simulation
-python run_visual.py --n_agvs 4                  # number of AGVs
-python run_visual.py --episodes 5                # stop after 5 episodes
-```
-
-### Window controls
+#### Keyboard shortcuts
 
 | Key | Action |
 | --- | ------ |
 | `SPACE` | Pause / resume |
-| `UP` / `DOWN` | Increase / decrease speed |
+| `↑` / `↓` | Increase / decrease simulation speed |
 | `R` | Reset episode |
 | `ESC` / `Q` | Quit |
 
