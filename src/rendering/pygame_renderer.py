@@ -103,8 +103,8 @@ class _Particle:
     y:     float
     vx:    float
     vy:    float
-    life:  float          # 1.0 = fresh, 0.0 = dead
-    decay: float          # life units lost per second
+    life:  float
+    decay: float
     color: Tuple[int, int, int]
     size:  float
 
@@ -352,47 +352,55 @@ class PygameRenderer:
     # Particle system
     # ------------------------------------------------------------------
 
+    def _particle_params(self, stage: int, cs: int) -> Tuple:
+        """Return (colors, n_burst, n_sparks, burst_speed, burst_decay, burst_size,
+        spark_speed, spark_decay, spark_size) tuples for pickup (stage==-1) or delivery."""
+        if stage == -1:
+            return (
+                [(255, 100, 80), (255, 180, 160), (255, 255, 255)],
+                5, 6,
+                (cs * 1.0, cs * 2.5), (2.5, 4.0), (2.0, 4.0),
+                (cs * 0.2, cs * 0.8), (1.5, 2.5), (1.0, 2.5),
+            )
+        return (
+            _STAGE_PARTICLE_COLORS.get(stage, [(255, 220, 80)]),
+            8, 12,
+            (cs * 1.5, cs * 3.5), (2.0, 3.5), (3.0, 6.0),
+            (cs * 0.3, cs * 1.2), (1.2, 2.2), (1.5, 3.5),
+        )
+
     def _emit_particles(self, grid_pos: Tuple[int, int], stage: int) -> None:
         rect   = self._cell_rect(*grid_pos)
         cx, cy = rect.centerx, rect.centery
         cs     = self._cell_size
-        # stage == -1 means pickup event: small white/red burst
-        if stage == -1:
-            colors = [(255, 100, 80), (255, 180, 160), (255, 255, 255)]
-        else:
-            colors = _STAGE_PARTICLE_COLORS.get(stage, [(255, 220, 80)])
 
-        is_pickup = stage == -1
-        n_burst   = 5  if is_pickup else 8
-        n_sparks  = 6  if is_pickup else 12
+        (colors, n_burst, n_sparks,
+         burst_speed, burst_decay, burst_size,
+         spark_speed, spark_decay, spark_size) = self._particle_params(stage, cs)
 
-        # Central flash ring
         for _ in range(n_burst):
             angle = random.uniform(0, 2 * math.pi)
-            speed = random.uniform(cs * 1.0, cs * 2.5) if is_pickup else random.uniform(cs * 1.5, cs * 3.5)
             self._particles.append(_Particle(
                 x=cx, y=cy,
-                vx=math.cos(angle) * speed,
-                vy=math.sin(angle) * speed,
+                vx=math.cos(angle) * random.uniform(*burst_speed),
+                vy=math.sin(angle) * random.uniform(*burst_speed),
                 life=1.0,
-                decay=random.uniform(2.5, 4.0) if is_pickup else random.uniform(2.0, 3.5),
+                decay=random.uniform(*burst_decay),
                 color=random.choice(colors),
-                size=random.uniform(2.0, 4.0) if is_pickup else random.uniform(3.0, 6.0),
+                size=random.uniform(*burst_size),
             ))
 
-        # Slower trailing sparks
         for _ in range(n_sparks):
             angle = random.uniform(0, 2 * math.pi)
-            speed = random.uniform(cs * 0.2, cs * 0.8) if is_pickup else random.uniform(cs * 0.3, cs * 1.2)
             self._particles.append(_Particle(
                 x=cx + random.uniform(-cs * 0.3, cs * 0.3),
                 y=cy + random.uniform(-cs * 0.3, cs * 0.3),
-                vx=math.cos(angle) * speed,
-                vy=math.sin(angle) * speed,
+                vx=math.cos(angle) * random.uniform(*spark_speed),
+                vy=math.sin(angle) * random.uniform(*spark_speed),
                 life=1.0,
-                decay=random.uniform(1.5, 2.5) if is_pickup else random.uniform(1.2, 2.2),
+                decay=random.uniform(*spark_decay),
                 color=random.choice(colors),
-                size=random.uniform(1.0, 2.5) if is_pickup else random.uniform(1.5, 3.5),
+                size=random.uniform(*spark_size),
             ))
 
     def _update_particles(self) -> None:
@@ -485,60 +493,72 @@ class PygameRenderer:
 
     def handle_events(self) -> str:
         mx = pygame.mouse.get_pos()[0]
-
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                return "quit"
-
-            if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_ESCAPE, pygame.K_q):
-                    return "quit"
-                if event.key == pygame.K_r:
-                    return "reset"
-                if event.key == pygame.K_SPACE:
-                    self._paused = not self._paused
-                if event.key == pygame.K_UP:
-                    self.fps = min(self.fps + 1, 60)
-                if event.key == pygame.K_DOWN:
-                    self.fps = max(self.fps - 1, 1)
-
-            if event.type == pygame.WINDOWRESIZED:
-                self._win_w = event.x
-                self._win_h = event.y
-
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if self._near_left_divider(mx):
-                    self._drag_left = True
-                elif self._near_right_divider(mx):
-                    self._drag_right = True
-                else:
-                    self._handle_grid_click(pygame.mouse.get_pos())
-                    result = self._handle_button_click(pygame.mouse.get_pos())
-                    if result == "reset":
-                        return "reset"
-                    self._start_hold(pygame.mouse.get_pos())
-
-            if event.type == pygame.MOUSEMOTION:
-                if self._drag_left:
-                    self._left_w = max(_LEFT_W_MIN,
-                                       min(mx, self._win_w - self._right_w - _RIGHT_W_MIN))
-                elif self._drag_right:
-                    self._right_w = max(_RIGHT_W_MIN,
-                                        min(self._win_w - mx,
-                                            self._win_w - self._left_w - _LEFT_W_MIN))
-
-            if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-                self._drag_left  = False
-                self._drag_right = False
-                self._held_action = None
-
-        if self._drag_left or self._drag_right or \
-           self._near_left_divider(mx) or self._near_right_divider(mx):
-            pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_SIZEWE)
-        else:
-            pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
-
+            result = self._process_event(event, mx)
+            if result in ("quit", "reset"):
+                return result
+        self._update_cursor(mx)
         return "ok"
+
+    def _process_event(self, event: pygame.event.Event, mx: int) -> Optional[str]:
+        if event.type == pygame.QUIT:
+            return "quit"
+        if event.type == pygame.KEYDOWN:
+            return self._handle_keydown(event)
+        if event.type == pygame.WINDOWRESIZED:
+            self._win_w = event.x
+            self._win_h = event.y
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            return self._handle_mouse_button_down(mx)
+        if event.type == pygame.MOUSEMOTION:
+            self._handle_mouse_motion(mx)
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            self._drag_left   = False
+            self._drag_right  = False
+            self._held_action = None
+        return None
+
+    def _handle_keydown(self, event: pygame.event.Event) -> Optional[str]:
+        if event.key in (pygame.K_ESCAPE, pygame.K_q):
+            return "quit"
+        if event.key == pygame.K_r:
+            return "reset"
+        if event.key == pygame.K_SPACE:
+            self._paused = not self._paused
+        if event.key == pygame.K_UP:
+            self.fps = min(self.fps + 1, 60)
+        if event.key == pygame.K_DOWN:
+            self.fps = max(self.fps - 1, 1)
+        return None
+
+    def _handle_mouse_button_down(self, mx: int) -> Optional[str]:
+        if self._near_left_divider(mx):
+            self._drag_left = True
+        elif self._near_right_divider(mx):
+            self._drag_right = True
+        else:
+            pos = pygame.mouse.get_pos()
+            self._handle_grid_click(pos)
+            result = self._handle_button_click(pos)
+            if result == "reset":
+                return "reset"
+            self._start_hold(pos)
+        return None
+
+    def _handle_mouse_motion(self, mx: int) -> None:
+        if self._drag_left:
+            self._left_w = max(_LEFT_W_MIN,
+                               min(mx, self._win_w - self._right_w - _RIGHT_W_MIN))
+        elif self._drag_right:
+            self._right_w = max(_RIGHT_W_MIN,
+                                min(self._win_w - mx,
+                                    self._win_w - self._left_w - _LEFT_W_MIN))
+
+    def _update_cursor(self, mx: int) -> None:
+        near = (self._drag_left or self._drag_right
+                or self._near_left_divider(mx) or self._near_right_divider(mx))
+        cursor = pygame.SYSTEM_CURSOR_SIZEWE if near else pygame.SYSTEM_CURSOR_ARROW
+        pygame.mouse.set_cursor(cursor)
 
     def _handle_button_click(self, pos: Tuple[int, int]) -> Optional[str]:
         _toggle_attrs = {
@@ -610,7 +630,7 @@ class PygameRenderer:
 
         # Advance anim_t for all AGVs
         step_dur = 1.0 / max(1, self.fps)
-        for agv_id in list(self._anim_t):
+        for agv_id in self._anim_t:
             self._anim_t[agv_id] = min(1.0, self._anim_t[agv_id] + self._dt / step_dur)
 
         # Accumulate time for sim stepping
@@ -665,7 +685,12 @@ class PygameRenderer:
             else:
                 active = False
             active_color = btn.get("active_color", _COLOR_BTN_ACTIVE)
-            bg = active_color if active else (_COLOR_BTN_HOVER if hovered else _COLOR_BTN_BG)
+            if active:
+                bg = active_color
+            elif hovered:
+                bg = _COLOR_BTN_HOVER
+            else:
+                bg = _COLOR_BTN_BG
             pygame.draw.rect(self._screen, bg, rect, border_radius=4)
             pygame.draw.rect(self._screen, _COLOR_BTN_BORDER, rect, 1, border_radius=4)
             lbl = self._font_sm.render(btn["label"], True, _COLOR_TEXT)
@@ -827,8 +852,12 @@ class PygameRenderer:
         bar_y = cy + cs // 2 - bar_h - 2
         pygame.draw.rect(self._screen, (60, 60, 60),
                          pygame.Rect(bar_x, bar_y, bar_w, bar_h))
-        fill = (80, 200, 80) if battery > 0.5 else \
-               (220, 180, 0) if battery > 0.2 else (220, 60, 60)
+        if battery > 0.5:
+            fill = (80, 200, 80)
+        elif battery > 0.2:
+            fill = (220, 180, 0)
+        else:
+            fill = (220, 60, 60)
         pygame.draw.rect(self._screen, fill,
                          pygame.Rect(bar_x, bar_y, int(bar_w * battery), bar_h))
 
