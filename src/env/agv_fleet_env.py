@@ -46,6 +46,10 @@ class AGVStatus(IntEnum):
     CHARGING           = 5
 
 
+# Statuses in which an AGV actively advances along its path each step
+_MOVING_STATUSES = frozenset({AGVStatus.MOVING_TO_PICKUP, AGVStatus.MOVING_TO_DELIVERY})
+
+
 class TaskStatus(IntEnum):
     PENDING     = 0
     ASSIGNED    = 1
@@ -312,8 +316,43 @@ class AGVFleetEnv(gym.Env):
 
         return penalty
 
+    def _claim_stationary_cells(self) -> set:
+        """Return the set of cells occupied by non-moving AGVs this tick."""
+        return {
+            agv.position
+            for agv in self.agvs
+            if agv.status not in _MOVING_STATUSES or not agv.path
+        }
+
+    def _resolve_movement_permissions(self) -> set:
+        """
+        Pre-pass: decide which AGVs may advance one cell this tick.
+
+        Priority = ascending AGV id (AGV 0 moves first). An AGV is permitted
+        only if its next cell is unclaimed. Permitted AGVs claim their
+        destination; blocked AGVs re-claim their current cell so others avoid
+        it. Swaps (A→B while B→A) are both permitted because each AGV frees
+        its own cell before the other checks it.
+        """
+        claimed = self._claim_stationary_cells()
+        permitted: set = set()
+
+        for agv in sorted(self.agvs, key=lambda a: a.id):
+            if agv.status not in _MOVING_STATUSES or not agv.path:
+                continue
+            next_cell = agv.path[0]
+            if next_cell not in claimed:
+                permitted.add(agv.id)
+                claimed.add(next_cell)
+            else:
+                claimed.add(agv.position)
+
+        return permitted
+
     def _move_agvs(self) -> float:
         reward = 0.0
+        permitted = self._resolve_movement_permissions()
+
         for agv in self.agvs:
             if agv.status == AGVStatus.CHARGING:
                 if agv.charge():
@@ -331,8 +370,9 @@ class AGVFleetEnv(gym.Env):
                     agv.path   = self._compute_path(agv.position, self._nearest_charging(agv.position))
                 continue
 
-            if agv.path:
+            if agv.path and agv.id in permitted:
                 agv.position = agv.path.pop(0)
+            # else: blocked this tick — path stays intact, AGV holds its cell
 
             if not agv.path:
                 reward += self._handle_arrival(agv)
