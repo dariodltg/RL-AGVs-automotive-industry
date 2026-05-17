@@ -13,13 +13,24 @@ Usage:
 import math
 import sys
 import time
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
-from src.env.agv_fleet_env import AGV, AGVStatus
+from src.env.agv_fleet_env import AGV, AGVStatus, Task, TaskStatus
 
 # ── Must match scene_builder.py constants ──────────────────────────────────
 _CELL_SIZE:    float = 0.5
 _COLOR_AMBIENT: int  = 0
+
+# Task marker spheres (floating above cells)
+_PRIM_SPHERE  = 1      # CoppeliaSim sphere type (sim.primitiveshape_sphere not always exposed)
+_MARKER_Z     = 0.65   # height above ground (clears even 0.4 m station blocks)
+_MARKER_R     = 0.055  # radius of regular pickup/delivery markers
+_FLASH_R      = 0.10   # radius of completion flash sphere
+
+# RGB colors for task markers (float [0,1])
+_COLOR_PICKUP   = [0.95, 0.25, 0.25]   # red   — pending pickup
+_COLOR_DELIVERY = [0.25, 0.90, 0.40]   # green — in-progress delivery
+_COLOR_FLASH    = [1.00, 0.95, 0.30]   # yellow — brief flash on pickup/delivery event
 
 # Rotation offset (radians) added to the computed heading.
 # Adjust if the OmniPlatform's visual "front" doesn't match world +X.
@@ -76,6 +87,12 @@ class CoppeliaSimBridge:
         self._visual_pos: List[Optional[List[float]]] = [None] * n_agvs
         # Current heading angle per AGV (radians, world Z axis)
         self._heading: List[float] = [0.0] * n_agvs
+
+        # Task marker state
+        self._task_markers:     Dict[int, int]              = {}  # task_id → sphere handle
+        self._task_status_cache: Dict[int, TaskStatus]      = {}  # last seen status
+        self._task_delivery:    Dict[int, Tuple[int, int]]  = {}  # task_id → delivery cell
+        self._flash_queue:      List[int]                   = []  # handles removed next tick
         print(f"[bridge] Ready — controlling {n_agvs} AGVs.")
 
     # ------------------------------------------------------------------
@@ -135,6 +152,86 @@ class CoppeliaSimBridge:
             self._sync_discrete(targets, colors)
         else:
             self._sync_smooth(targets, colors, interp_steps, step_delay)
+
+    # ------------------------------------------------------------------
+    # Task markers
+    # ------------------------------------------------------------------
+
+    def sync_tasks(self, tasks: List[Task]) -> None:
+        """
+        Update floating task-marker spheres in CoppeliaSim.
+
+        Rules:
+          PENDING / ASSIGNED  → red sphere above pickup cell
+          IN_PROGRESS         → green sphere above delivery cell
+                                + yellow flash at pickup cell (one tick only)
+          Completed (removed) → yellow flash at delivery cell (one tick only)
+
+        Call once per env step, before or after sync().
+        """
+        for h in self._flash_queue:
+            self._try_remove(h)
+        self._flash_queue.clear()
+
+        current_ids = {t.id for t in tasks}
+        self._expire_completed_tasks(current_ids)
+        for task in tasks:
+            self._update_task_marker(task)
+
+    def _expire_completed_tasks(self, current_ids: set) -> None:
+        """Remove markers for tasks that have left the active list."""
+        for tid in set(self._task_markers) - current_ids:
+            self._try_remove(self._task_markers.pop(tid))
+            self._task_status_cache.pop(tid, None)
+            if tid in self._task_delivery:
+                r, c = self._task_delivery.pop(tid)
+                self._flash_queue.append(self._create_marker(r, c, _COLOR_FLASH, _FLASH_R))
+
+    def _update_task_marker(self, task: Task) -> None:
+        """Create or update the marker sphere for a single task."""
+        prev_status = self._task_status_cache.get(task.id)
+        self._task_status_cache[task.id] = task.status
+        self._task_delivery[task.id]     = task.delivery
+
+        if task.status in (TaskStatus.PENDING, TaskStatus.ASSIGNED):
+            if task.id not in self._task_markers:
+                self._task_markers[task.id] = self._create_marker(
+                    *task.pickup, _COLOR_PICKUP, _MARKER_R
+                )
+        elif task.status == TaskStatus.IN_PROGRESS:
+            self._handle_in_progress_marker(task, prev_status)
+
+    def _handle_in_progress_marker(self, task: Task, prev_status: Optional[TaskStatus]) -> None:
+        """Swap pickup→delivery marker and emit pickup flash on transition."""
+        if prev_status in (TaskStatus.PENDING, TaskStatus.ASSIGNED):
+            self._try_remove(self._task_markers.pop(task.id, -1))
+            self._flash_queue.append(
+                self._create_marker(*task.pickup, _COLOR_FLASH, _FLASH_R)
+            )
+        if task.id not in self._task_markers:
+            self._task_markers[task.id] = self._create_marker(
+                *task.delivery, _COLOR_DELIVERY, _MARKER_R
+            )
+
+    def _create_marker(self, row: int, col: int, color: list, radius: float) -> int:
+        """Create a small sphere above a grid cell and return its handle."""
+        sim  = self._sim
+        d    = radius * 2
+        wx   = (col + 0.5) * _CELL_SIZE
+        wy   = (row + 0.5) * _CELL_SIZE
+        handle = sim.createPrimitiveShape(_PRIM_SPHERE, [d, d, d], 0)
+        sim.setObjectPosition(handle, -1, [wx, wy, _MARKER_Z])
+        sim.setShapeColor(handle, '', _COLOR_AMBIENT, color)
+        return handle
+
+    def _try_remove(self, handle: int) -> None:
+        """Remove a CoppeliaSim object silently (ignore if already gone)."""
+        if handle < 0:
+            return
+        try:
+            self._sim.removeObjects([handle], False)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Private helpers

@@ -65,6 +65,7 @@ def run_episode(env: AGVFleetEnv, agent, bridge: CoppeliaSimBridge, args) -> dic
     for step in range(args.steps):
         action = agent.select_action(env)
         _, _, terminated, truncated, info = env.step(action)
+        bridge.sync_tasks(env.tasks)
         bridge.sync(
             env.agvs,
             interp_steps=args.interp_steps,
