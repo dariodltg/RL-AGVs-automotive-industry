@@ -17,7 +17,7 @@ Usage:
 
 import argparse
 import sys
-import time
+
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -32,8 +32,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--n_agvs",    type=int,   default=4,    help="Number of AGVs (default 4)")
     p.add_argument("--n_tasks",   type=int,   default=8,    help="Max simultaneous tasks (default 8)")
     p.add_argument("--steps",     type=int,   default=500,  help="Steps per episode (default 500)")
-    p.add_argument("--delay",     type=float, default=0.08, help="Seconds between steps for visualization (default 0.08)")
-    p.add_argument("--episodes",  type=int,   default=1,    help="Number of episodes to run (default 1)")
+    p.add_argument("--delay",        type=float, default=0.08, help="Seconds per env step (default 0.08)")
+    p.add_argument("--interp_steps", type=int,   default=8,    help="Sub-frames for smooth movement (1=discrete, default 8)")
+    p.add_argument("--episodes",     type=int,   default=1,    help="Number of episodes to run (default 1)")
     p.add_argument("--model",     type=str,   default=None, help="Path to a trained PPO .zip model (optional)")
     p.add_argument("--host",      type=str,   default="localhost")
     p.add_argument("--port",      type=int,   default=23000)
@@ -64,10 +65,11 @@ def run_episode(env: AGVFleetEnv, agent, bridge: CoppeliaSimBridge, args) -> dic
     for step in range(args.steps):
         action = agent.select_action(env)
         _, _, terminated, truncated, info = env.step(action)
-        bridge.sync(env.agvs)
-
-        if args.delay > 0:
-            time.sleep(args.delay)
+        bridge.sync(
+            env.agvs,
+            interp_steps=args.interp_steps,
+            step_delay=args.delay / max(args.interp_steps, 1),
+        )
 
         if (step + 1) % 50 == 0:
             print(

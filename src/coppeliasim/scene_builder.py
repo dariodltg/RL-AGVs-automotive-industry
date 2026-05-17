@@ -132,37 +132,44 @@ def _find_agv_model_path(sim) -> str:
 
 def _load_agv_model(sim, idx: int, row: int, col: int, parent: int, model_path: str) -> tuple:
     """
-    Load an AGV model from the CoppeliaSim library at grid position (row, col).
+    Load an AGV model at grid position (row, col).
 
-    Renames the model root to AGV_{idx} and adds a status-light sphere on top
-    as AGV_{idx}_Light (the bridge changes its color every step).
+    Hierarchy:
+        AGV_{idx}          ← dummy at Z=0, orientation [0,0,0]  (bridge moves + rotates this)
+        ├── <model root>   ← OmniPlatform at _AGV_Z_OFFSET, natural pose preserved
+        └── AGV_{idx}_Light ← status sphere, bridge changes color
 
-    Returns (root_handle, light_handle).
+    Using a neutral dummy as root means bridge body-rotation is a simple
+    setObjectOrientation([0, 0, heading]) with no Euler-angle composition needed.
+
+    Returns (dummy_handle, light_handle).
     """
     world_x = (col + 0.5) * CELL_SIZE
     world_y = (row + 0.5) * CELL_SIZE
     name = f'AGV_{idx}'
 
-    root = sim.loadModel(model_path)
+    # Dummy root — bridge moves and rotates this; model + light follow
+    dummy = sim.createDummy(0.01)
+    sim.setObjectPosition(dummy, -1, [world_x, world_y, 0.0])
+    sim.setObjectOrientation(dummy, -1, [0.0, 0.0, 0.0])
+    sim.setObjectAlias(dummy, name)
+    sim.setObjectParent(dummy, parent, True)
 
+    # Load model as child of dummy at its natural Z offset
+    model_root = sim.loadModel(model_path)
     if abs(_AGV_SCALE - 1.0) > 1e-6:
-        sim.scaleObject(root, _AGV_SCALE, _AGV_SCALE, _AGV_SCALE, 0)
+        sim.scaleObject(model_root, _AGV_SCALE, _AGV_SCALE, _AGV_SCALE, 0)
+    sim.setObjectPosition(model_root, -1, [world_x, world_y, _AGV_Z_OFFSET])
+    sim.setObjectParent(model_root, dummy, True)   # preserves world pos/orient
 
-    # _AGV_Z_OFFSET: lift the model so its base rests on the ground plane.
-    # Set to 0 if the model's reference frame is already at the base.
-    sim.setObjectPosition(root, -1, [world_x, world_y, _AGV_Z_OFFSET])
-
-    sim.setObjectAlias(root, name)
-    sim.setObjectParent(root, parent, True)
-
-    # Status light sphere directly above the model
+    # Status light as child of dummy (so it rotates with the body)
     light = sim.createPrimitiveShape(_PRIM_SPHERE, [_LT_D, _LT_D, _LT_D], 0)
     sim.setObjectPosition(light, -1, [world_x, world_y, _LT_Z])
     sim.setShapeColor(light, '', _COLOR_AMBIENT, [0.95, 0.95, 0.95])
     sim.setObjectAlias(light, f'{name}_Light')
-    sim.setObjectParent(light, root, True)
+    sim.setObjectParent(light, dummy, True)
 
-    return root, light
+    return dummy, light
 
 
 # ---------------------------------------------------------------------------
