@@ -232,14 +232,12 @@ class LaunchMenu:
         return None
 
     def _run_build_scene(self) -> None:
-        """Background thread: calls scene_builder.build_scene() and updates status."""
+        """Background thread: clears the scene and rebuilds it via ZeroMQ."""
         try:
-            from src.coppeliasim.scene_builder import build_scene, SceneAlreadyExistsError
+            from src.coppeliasim.scene_builder import build_scene
             n_agvs = max(1, self._int_or(self._n_input, 4))
             build_scene(n_agvs=n_agvs)
             self._build_status = "done"
-        except SceneAlreadyExistsError:
-            self._build_status = "exists"
         except Exception as exc:
             self._build_message = str(exc)[:55]
             self._build_status  = "error"
@@ -375,18 +373,16 @@ class LaunchMenu:
         rect = pygame.Rect(_LEFT_PAD, y, bw, bh)
 
         _STATUS_LABELS = {
-            "idle":     "Build scene in CoppeliaSim",
+            "idle":     "Build / Rebuild scene in CoppeliaSim",
             "building": "Building...  (please wait)",
-            "done":     "✓  Scene built — save it in CoppeliaSim",
-            "exists":   "⚠  Open a new scene first  (File → New scene)",
+            "done":     "✓  Scene ready — save it in CoppeliaSim",
             "error":    f"✗  {self._build_message or 'Error — see console'}",
         }
         label = _STATUS_LABELS.get(self._build_status, "Build scene")
 
         _STATUS_BG = {
-            "done":   (35, 130, 60),
-            "exists": (140, 100, 10),
-            "error":  (140, 40,  40),
+            "done":  (35, 130, 60),
+            "error": (140, 40,  40),
         }
 
         if not needs_cs or self._build_status == "building":

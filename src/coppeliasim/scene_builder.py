@@ -180,26 +180,44 @@ def _load_agv_model(sim, idx: int, row: int, col: int, parent: int, model_path: 
 # Main builder
 # ---------------------------------------------------------------------------
 
-def _prepare_scene(sim) -> None:
+def clear_scene(sim) -> None:
     """
-    Guard against running on a scene that already has plant objects,
-    then remove the CoppeliaSim default floor if present.
+    Delete all user-created objects from the scene via ZeroMQ.
 
-    If /Plant or /AGVs already exist the function aborts with instructions
-    because programmatic subtree removal via ZMQ is unreliable across
-    CoppeliaSim versions. The clean solution is to start from an empty scene.
+    Uses sim.getObjectsInTree(-1, -1, 0) to retrieve every object handle
+    in the scene (scene root = -1, all types = -1), then removes them in
+    one batch call.  Non-removable built-ins (cameras, default lights) are
+    silently skipped via individual fallback removal.
+
+    After this call the scene is empty and ready for build_scene().
     """
-    for alias in ['/Plant', '/AGVs']:
-        try:
-            sim.getObject(alias)
-            raise SceneAlreadyExistsError(
-                f"'{alias}' already exists in the scene. "
-                "Open a fresh scene in CoppeliaSim (File → New scene) and try again."
-            )
-        except SceneAlreadyExistsError:
-            raise
-        except Exception:
-            pass  # object not found → scene is clean for this alias
+    try:
+        handles = sim.getObjectsInTree(-1, -1, 0)
+    except Exception:
+        handles = []
+
+    if not handles:
+        return
+
+    try:
+        sim.removeObjects(handles, False)
+        print(f"  Cleared {len(handles)} scene objects.")
+    except Exception:
+        # Batch removal failed (e.g. undeletable camera in the list)
+        # → remove objects one by one, skip those that fail
+        removed = 0
+        for h in handles:
+            try:
+                sim.removeObjects([h], False)
+                removed += 1
+            except Exception:
+                pass
+        print(f"  Cleared {removed}/{len(handles)} scene objects.")
+
+
+def _prepare_scene(sim) -> None:
+    """Clear the scene so build_scene() starts from a blank slate."""
+    clear_scene(sim)
 
     for name in _DEFAULT_FLOOR_NAMES:
         try:
@@ -312,8 +330,4 @@ if __name__ == '__main__':
     p.add_argument('--host',   type=str, default='localhost')
     p.add_argument('--port',   type=int, default=23000)
     args = p.parse_args()
-    try:
-        build_scene(host=args.host, port=args.port, n_agvs=args.n_agvs)
-    except SceneAlreadyExistsError as e:
-        print(f"\nERROR: {e}")
-        sys.exit(1)
+    build_scene(host=args.host, port=args.port, n_agvs=args.n_agvs)
