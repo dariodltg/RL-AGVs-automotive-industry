@@ -89,10 +89,14 @@ class CoppeliaSimBridge:
         self._heading: List[float] = [0.0] * n_agvs
 
         # Task marker state
-        self._task_markers:     Dict[int, int]              = {}  # task_id → sphere handle
+        self._task_markers:      Dict[int, int]             = {}  # task_id → sphere handle
         self._task_status_cache: Dict[int, TaskStatus]      = {}  # last seen status
-        self._task_delivery:    Dict[int, Tuple[int, int]]  = {}  # task_id → delivery cell
-        self._flash_queue:      List[int]                   = []  # handles removed next tick
+        self._task_delivery:     Dict[int, Tuple[int, int]] = {}  # task_id → delivery cell
+        self._flash_queue:       List[int]                  = []  # handles removed next tick
+
+        # For 'both' render mode: world position at the start of the current step
+        # (used by sync_frame to interpolate between step_start and target)
+        self._step_start_pos: Dict[int, List[float]] = {}
         print(f"[bridge] Ready — controlling {n_agvs} AGVs.")
 
     # ------------------------------------------------------------------
@@ -152,6 +156,54 @@ class CoppeliaSimBridge:
             self._sync_discrete(targets, colors)
         else:
             self._sync_smooth(targets, colors, interp_steps, step_delay)
+
+    # ------------------------------------------------------------------
+    # Synchronised 'both' mode  (Pygame drives timing)
+    # ------------------------------------------------------------------
+
+    def sync_step(self, agvs: List[AGV], tasks: List[Task]) -> None:
+        """
+        Call once per env step when running in 'both' mode.
+
+        Records the step-start world positions for sync_frame, rotates each
+        AGV to face its new direction, and updates status-light colors and
+        task markers.  Does NOT update AGV positions — sync_frame does that
+        at Pygame's render rate so both visualisers move in lockstep.
+        """
+        sim = self._sim
+        for agv in agvs:
+            if agv.id >= self._n_agvs:
+                continue
+            target = _grid_to_world(*agv.position)
+            start  = self._visual_pos[agv.id] or target
+            self._step_start_pos[agv.id] = start
+            self._update_heading(agv.id, start, target)
+            color = _STATUS_COLORS.get(agv.status, [0.95, 0.95, 0.95])
+            sim.setShapeColor(self._lights[agv.id], '', _COLOR_AMBIENT, color)
+            self._visual_pos[agv.id] = target
+        self.sync_tasks(tasks)
+
+    def sync_frame(self, agvs: List[AGV], anim_t: dict) -> None:
+        """
+        Call every Pygame render frame (~60 fps) in 'both' mode.
+
+        Interpolates each AGV's CoppeliaSim position using the same fractional
+        progress `t` that Pygame uses, producing perfectly synchronised motion
+        in both visualisers.
+
+        Parameters
+        ----------
+        anim_t : dict {agv_id: float}
+            renderer._anim_t — value in [0, 1], 0 = step start, 1 = step end.
+        """
+        sim = self._sim
+        for agv in agvs:
+            if agv.id >= self._n_agvs:
+                continue
+            t      = min(1.0, anim_t.get(agv.id, 1.0))
+            target = _grid_to_world(*agv.position)
+            start  = self._step_start_pos.get(agv.id) or target
+            sim.setObjectPosition(self._bases[agv.id], -1, _lerp(start, target, t))
 
     # ------------------------------------------------------------------
     # Task markers

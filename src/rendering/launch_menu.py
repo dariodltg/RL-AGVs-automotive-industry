@@ -5,6 +5,7 @@ Shown when the script is invoked without arguments. Returns a config
 dict that run_visual.py uses to build the env, agent, and renderer.
 """
 
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -32,7 +33,7 @@ _LAUNCH_BG    = ( 30, 130,  55)
 _LAUNCH_HOVER = ( 40, 160,  70)
 
 _WIN_W = 500
-_WIN_H = 470
+_WIN_H = 585
 
 _MODELS_DIR  = Path(__file__).parent.parent.parent / "models"
 _LEFT_PAD    = 80
@@ -72,8 +73,15 @@ class LaunchMenu:
         self._eps_input:  str           = "0"
         self._eps_focused: bool         = False
         self._layout:     str           = "L1"
-        self._agent:     str           = "astar"
-        self._model:     Optional[Path] = None
+        self._renderer:   str           = "pygame"
+        self._agent:      str           = "astar"
+        self._model:      Optional[Path] = None
+
+        # CoppeliaSim scene builder state
+        # "idle" | "building" | "done" | "exists" | "error"
+        self._build_status:  str                        = "idle"
+        self._build_message: str                        = ""
+        self._build_thread:  Optional[threading.Thread] = None
 
         self._models: List[Path] = self._scan_models()
 
@@ -114,11 +122,12 @@ class LaunchMenu:
         n   = int(raw_n)   if raw_n.isdigit()   and raw_n   else 4
         eps = int(raw_eps) if raw_eps.isdigit() and raw_eps else 0
         return {
-            "n_agvs":   max(1, n),
-            "episodes": max(0, eps),
-            "layout":   self._layout,
-            "agent":    self._agent,
-            "model":    str(self._model) if self._model else None,
+            "n_agvs":    max(1, n),
+            "episodes":  max(0, eps),
+            "layout":    self._layout,
+            "renderer":  self._renderer,
+            "agent":     self._agent,
+            "model":     str(self._model) if self._model else None,
         }
 
     def _config_valid(self) -> bool:
@@ -181,6 +190,17 @@ class LaunchMenu:
                 return result
         return None
 
+    def _apply_counter_action(self, action: str) -> None:
+        """Handle the ± counter actions for n_agvs and episodes fields."""
+        if action == "n_dec":
+            self._n_input = str(max(1, self._int_or(self._n_input, 4) - 1))
+        elif action == "n_inc":
+            self._n_input = str(min(_MAX_N_AGVS, self._int_or(self._n_input, 4) + 1))
+        elif action == "eps_dec":
+            self._eps_input = str(max(0, self._int_or(self._eps_input, 0) - 1))
+        elif action == "eps_inc":
+            self._eps_input = str(min(9999, self._int_or(self._eps_input, 0) + 1))
+
     def _apply_action(self, action: str) -> Optional[str]:
         if action == "quit":
             return "quit"
@@ -190,14 +210,7 @@ class LaunchMenu:
             self._n_focused   = True
         if action == "focus_eps":
             self._eps_focused = True
-        if action == "n_dec":
-            self._n_input = str(max(1, self._int_or(self._n_input, 4) - 1))
-        if action == "n_inc":
-            self._n_input = str(min(_MAX_N_AGVS, self._int_or(self._n_input, 4) + 1))
-        if action == "eps_dec":
-            self._eps_input = str(max(0, self._int_or(self._eps_input, 0) - 1))
-        if action == "eps_inc":
-            self._eps_input = str(min(9999, self._int_or(self._eps_input, 0) + 1))
+        self._apply_counter_action(action)
         if action.startswith("layout:") and action.split(":", 1)[1] == "L1":
             self._layout = "L1"
         if action == "agent:astar":
@@ -207,7 +220,29 @@ class LaunchMenu:
         if action.startswith("agent:ppo:"):
             self._agent = "ppo"
             self._model = Path(action.split("agent:ppo:", 1)[1])
+        if action.startswith("renderer:"):
+            self._renderer = action.split("renderer:", 1)[1]
+        if action == "build_scene" and self._build_status != "building":
+            self._build_status  = "building"
+            self._build_message = ""
+            self._build_thread  = threading.Thread(
+                target=self._run_build_scene, daemon=True
+            )
+            self._build_thread.start()
         return None
+
+    def _run_build_scene(self) -> None:
+        """Background thread: calls scene_builder.build_scene() and updates status."""
+        try:
+            from src.coppeliasim.scene_builder import build_scene, SceneAlreadyExistsError
+            n_agvs = max(1, self._int_or(self._n_input, 4))
+            build_scene(n_agvs=n_agvs)
+            self._build_status = "done"
+        except SceneAlreadyExistsError:
+            self._build_status = "exists"
+        except Exception as exc:
+            self._build_message = str(exc)[:55]
+            self._build_status  = "error"
 
     @staticmethod
     def _int_or(value: str, default: int) -> int:
@@ -231,9 +266,11 @@ class LaunchMenu:
         self._screen.blit(surf, surf.get_rect(centerx=_WIN_W // 2, top=y))
         y += surf.get_height() + 28
 
-        y = self._draw_int_row(y, mouse) + 22
-        y = self._draw_layouts(y, mouse) + 22
-        y = self._draw_agents(y, mouse)  + 32
+        y = self._draw_int_row(y, mouse)    + 22
+        y = self._draw_layouts(y, mouse)    + 22
+        y = self._draw_renderers(y, mouse)  + 14
+        y = self._draw_setup(y, mouse)      + 22
+        y = self._draw_agents(y, mouse)     + 32
         self._draw_launch_row(y, mouse)
 
         pygame.display.flip()
@@ -305,6 +342,63 @@ class LaunchMenu:
                 self._btn(rect, label, mouse, active=(self._layout == label))
             else:
                 self._btn_disabled(rect, f"{label} (soon)")
+
+        return y + bh
+
+    def _draw_renderers(self, y: int, mouse: tuple) -> int:
+        self._section_label("Visualisation", y)
+        y += 22
+
+        options = [
+            ("pygame",       "Pygame 2D"),
+            ("coppeliasim",  "CoppeliaSim 3D"),
+            ("both",         "Both (sync)"),
+        ]
+        bw, bh, gap = 124, 34, 8
+        x = _LEFT_PAD
+        for key, label in options:
+            rect = pygame.Rect(x, y, bw, bh)
+            x += bw + gap
+            self._regions.append({"rect": rect, "action": f"renderer:{key}"})
+            self._btn(rect, label, mouse, active=(self._renderer == key))
+
+        return y + bh
+
+    def _draw_setup(self, y: int, mouse: tuple) -> int:
+        """Build Scene button — active only when CoppeliaSim renderer is selected."""
+        needs_cs = self._renderer in ("coppeliasim", "both")
+        self._section_label("CoppeliaSim setup", y)
+        y += 22
+
+        bw = _WIN_W - _LEFT_PAD * 2
+        bh = 34
+        rect = pygame.Rect(_LEFT_PAD, y, bw, bh)
+
+        _STATUS_LABELS = {
+            "idle":     "Build scene in CoppeliaSim",
+            "building": "Building...  (please wait)",
+            "done":     "✓  Scene built — save it in CoppeliaSim",
+            "exists":   "⚠  Open a new scene first  (File → New scene)",
+            "error":    f"✗  {self._build_message or 'Error — see console'}",
+        }
+        label = _STATUS_LABELS.get(self._build_status, "Build scene")
+
+        _STATUS_BG = {
+            "done":   (35, 130, 60),
+            "exists": (140, 100, 10),
+            "error":  (140, 40,  40),
+        }
+
+        if not needs_cs or self._build_status == "building":
+            self._btn_disabled(rect, label)
+        else:
+            self._regions.append({"rect": rect, "action": "build_scene"})
+            bg = _STATUS_BG.get(self._build_status,
+                                 _BTN_HOVER if rect.collidepoint(mouse) else _BTN_BG)
+            pygame.draw.rect(self._screen, bg,          rect, border_radius=5)
+            pygame.draw.rect(self._screen, _BTN_BORDER, rect, 1, border_radius=5)
+            surf = self._font_sm.render(label, True, _TEXT)
+            self._screen.blit(surf, surf.get_rect(center=rect.center))
 
         return y + bh
 

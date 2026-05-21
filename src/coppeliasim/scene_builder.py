@@ -29,6 +29,10 @@ import sys
 import time
 from pathlib import Path
 
+
+class SceneAlreadyExistsError(RuntimeError):
+    """Raised when /Plant or /AGVs already exist in the CoppeliaSim scene."""
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from src.env.plant_map import CellType, PlantMap
@@ -188,10 +192,12 @@ def _prepare_scene(sim) -> None:
     for alias in ['/Plant', '/AGVs']:
         try:
             sim.getObject(alias)
-            print(f"\nERROR: '{alias}' already exists in the scene.")
-            print("  Open a fresh scene in CoppeliaSim (File → New scene)")
-            print("  then run this script again.")
-            sys.exit(1)
+            raise SceneAlreadyExistsError(
+                f"'{alias}' already exists in the scene. "
+                "Open a fresh scene in CoppeliaSim (File → New scene) and try again."
+            )
+        except SceneAlreadyExistsError:
+            raise
         except Exception:
             pass  # object not found → scene is clean for this alias
 
@@ -306,4 +312,8 @@ if __name__ == '__main__':
     p.add_argument('--host',   type=str, default='localhost')
     p.add_argument('--port',   type=int, default=23000)
     args = p.parse_args()
-    build_scene(host=args.host, port=args.port, n_agvs=args.n_agvs)
+    try:
+        build_scene(host=args.host, port=args.port, n_agvs=args.n_agvs)
+    except SceneAlreadyExistsError as e:
+        print(f"\nERROR: {e}")
+        sys.exit(1)
