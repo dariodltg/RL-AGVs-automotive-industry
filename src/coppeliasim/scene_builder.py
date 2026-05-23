@@ -26,6 +26,7 @@ Usage:
 """
 
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -41,16 +42,17 @@ from src.env.plant_map import CellType, PlantMap
 CELL_SIZE: float = 0.5
 
 # Visual properties per cell type: (rgb, height_m)
-# Small gap (0.01 m) between cells is achieved via CELL_SIZE - _GAP below
+# Stations and special cells are flat floor tiles (same thickness as FREE).
+# Only OBSTACLE stays tall — it represents physical walls / fixed machinery.
 _VISUALS: dict = {
-    CellType.FREE:     ([0.78, 0.78, 0.78], 0.03),
-    CellType.OBSTACLE: ([0.22, 0.22, 0.22], 1.50),
-    CellType.ENTRY:    ([0.20, 0.80, 0.20], 0.20),
-    CellType.STAMPING: ([0.20, 0.40, 0.85], 0.40),
-    CellType.BUFFER:   ([0.95, 0.60, 0.10], 0.30),
-    CellType.WELDING:  ([0.85, 0.20, 0.20], 0.40),
-    CellType.EXIT:     ([0.95, 0.85, 0.10], 0.20),
-    CellType.CHARGING: ([0.10, 0.85, 0.85], 0.15),
+    CellType.FREE:     ([0.78, 0.78, 0.78], 0.03),  # grey corridor floor
+    CellType.OBSTACLE: ([0.22, 0.22, 0.22], 1.50),  # tall wall / machinery block
+    CellType.ENTRY:    ([0.20, 0.80, 0.20], 0.04),  # green tile
+    CellType.STAMPING: ([0.20, 0.40, 0.85], 0.04),  # blue tile
+    CellType.BUFFER:   ([0.95, 0.60, 0.10], 0.04),  # orange tile
+    CellType.WELDING:  ([0.85, 0.20, 0.20], 0.04),  # red tile
+    CellType.EXIT:     ([0.95, 0.85, 0.10], 0.04),  # yellow tile
+    CellType.CHARGING: ([0.10, 0.85, 0.85], 0.04),  # cyan tile
 }
 
 _GAP: float = 0.01  # gap between adjacent cells (visual separation)
@@ -244,9 +246,29 @@ def build_scene(host: str = 'localhost', port: int = 23000, n_agvs: int = 4) -> 
         print("       pip install coppeliasim-zmqremoteapi-client")
         sys.exit(1)
 
-    print(f"Connecting to CoppeliaSim at {host}:{port} ...")
-    client = RemoteAPIClient(host=host, port=port)
-    sim = client.require('sim')
+    _TIMEOUT = 5.0
+    print(f"Connecting to CoppeliaSim at {host}:{port} (timeout {_TIMEOUT:.0f}s) ...")
+    _result: list = [None]
+    _error:  list = [None]
+    _done = threading.Event()
+
+    def _try() -> None:
+        try:
+            c = RemoteAPIClient(host, port)
+            _result[0] = (c, c.require('sim'))
+        except Exception as exc:  # noqa: BLE001
+            _error[0] = exc
+        _done.set()
+
+    threading.Thread(target=_try, daemon=True).start()
+    if not _done.wait(timeout=_TIMEOUT):
+        raise ConnectionError(
+            f"CoppeliaSim not reachable at {host}:{port} after {_TIMEOUT:.0f} s.\n"
+            "  → Start CoppeliaSim and open the plant scene, then try again."
+        )
+    if _error[0] is not None:
+        raise _error[0]
+    _, sim = _result[0]
     print("Connected.")
 
     if sim.getSimulationState() != sim.simulation_stopped:
@@ -330,4 +352,8 @@ if __name__ == '__main__':
     p.add_argument('--host',   type=str, default='localhost')
     p.add_argument('--port',   type=int, default=23000)
     args = p.parse_args()
-    build_scene(host=args.host, port=args.port, n_agvs=args.n_agvs)
+    try:
+        build_scene(host=args.host, port=args.port, n_agvs=args.n_agvs)
+    except ConnectionError as exc:
+        print(f"\nERROR: {exc}")
+        sys.exit(1)

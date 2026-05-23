@@ -32,8 +32,8 @@ _INPUT_FOCUS  = ( 38,  48,  80)
 _LAUNCH_BG    = ( 30, 130,  55)
 _LAUNCH_HOVER = ( 40, 160,  70)
 
-_WIN_W = 500
-_WIN_H = 585
+_WIN_W = 600
+_WIN_H = 640
 
 _MODELS_DIR  = Path(__file__).parent.parent.parent / "models"
 _LEFT_PAD    = 80
@@ -62,6 +62,8 @@ class LaunchMenu:
         pygame.init()
         self._screen = pygame.display.set_mode((_WIN_W, _WIN_H))
         pygame.display.set_caption("AGV Fleet — Setup")
+        from ._icon import make_app_icon
+        pygame.display.set_icon(make_app_icon())
         self._clock   = pygame.time.Clock()
         self._font_lg = pygame.font.SysFont("consolas", 22, bold=True)
         self._font_md = pygame.font.SysFont("consolas", 15)
@@ -83,6 +85,11 @@ class LaunchMenu:
         self._build_message: str                        = ""
         self._build_thread:  Optional[threading.Thread] = None
 
+        # CoppeliaSim connection check (triggered by LAUNCH when renderer=cs/both)
+        # "idle" | "checking" | "ok" | "error"
+        self._cs_status:  str = "idle"
+        self._cs_message: str = ""
+
         self._models: List[Path] = self._scan_models()
 
         # Clickable regions rebuilt each frame
@@ -99,6 +106,9 @@ class LaunchMenu:
             if result == "quit":
                 return None
             if result == "launch":
+                return self._build_config()
+            # Connection check passed in background → auto-launch
+            if self._cs_status == "ok":
                 return self._build_config()
             self._draw()
             self._clock.tick(30)
@@ -205,7 +215,7 @@ class LaunchMenu:
         if action == "quit":
             return "quit"
         if action == "launch":
-            return "launch" if self._config_valid() else None
+            return self._handle_launch()
         if action == "focus_n":
             self._n_focused   = True
         if action == "focus_eps":
@@ -222,6 +232,8 @@ class LaunchMenu:
             self._model = Path(action.split("agent:ppo:", 1)[1])
         if action.startswith("renderer:"):
             self._renderer = action.split("renderer:", 1)[1]
+            self._cs_status  = "idle"   # reset check when renderer changes
+            self._cs_message = ""
         if action == "build_scene" and self._build_status != "building":
             self._build_status  = "building"
             self._build_message = ""
@@ -241,6 +253,32 @@ class LaunchMenu:
         except Exception as exc:
             self._build_message = str(exc)[:55]
             self._build_status  = "error"
+
+    def _check_cs(self) -> None:
+        """Background thread: test ZeroMQ connectivity before launching."""
+        try:
+            from src.coppeliasim.bridge import _connect_zmq
+            _connect_zmq('localhost', 23000)
+            self._cs_status = "ok"
+        except Exception as exc:
+            self._cs_message = str(exc).split('\n')[0][:55]
+            self._cs_status  = "error"
+
+    def _handle_launch(self) -> Optional[str]:
+        """Validate config and, when CoppeliaSim is needed, check connectivity."""
+        if not self._config_valid():
+            return None
+        if self._renderer not in ("coppeliasim", "both"):
+            return "launch"
+        if self._cs_status == "ok":
+            return "launch"
+        if self._cs_status == "checking":
+            return None
+        # idle or previous error → (re)start connection check
+        self._cs_status  = "checking"
+        self._cs_message = ""
+        threading.Thread(target=self._check_cs, daemon=True).start()
+        return None
 
     @staticmethod
     def _int_or(value: str, default: int) -> int:
@@ -268,7 +306,8 @@ class LaunchMenu:
         y = self._draw_layouts(y, mouse)    + 22
         y = self._draw_renderers(y, mouse)  + 14
         y = self._draw_setup(y, mouse)      + 22
-        y = self._draw_agents(y, mouse)     + 32
+        y = self._draw_agents(y, mouse)     + 12
+        y = self._draw_cs_connect_status(y) + 10
         self._draw_launch_row(y, mouse)
 
         pygame.display.flip()
@@ -372,27 +411,36 @@ class LaunchMenu:
         bh = 34
         rect = pygame.Rect(_LEFT_PAD, y, bw, bh)
 
+        is_error = self._build_status == "error"
         _STATUS_LABELS = {
             "idle":     "Build / Rebuild scene in CoppeliaSim",
             "building": "Building...  (please wait)",
             "done":     "✓  Scene ready — save it in CoppeliaSim",
-            "error":    f"✗  {self._build_message or 'Error — see console'}",
+            "error":    f"✗  {(self._build_message or 'Build error')[:32]}  — click to retry",
         }
         label = _STATUS_LABELS.get(self._build_status, "Build scene")
 
         _STATUS_BG = {
             "done":  (35, 130, 60),
-            "error": (140, 40,  40),
+            "error": (130, 50, 20),   # orange, same style as LAUNCH retry
+        }
+        _STATUS_BORDER = {
+            "done":  _BTN_BORDER,
+            "error": (220, 90, 40),
         }
 
         if not needs_cs or self._build_status == "building":
             self._btn_disabled(rect, label)
         else:
             self._regions.append({"rect": rect, "action": "build_scene"})
-            bg = _STATUS_BG.get(self._build_status,
-                                 _BTN_HOVER if rect.collidepoint(mouse) else _BTN_BG)
-            pygame.draw.rect(self._screen, bg,          rect, border_radius=5)
-            pygame.draw.rect(self._screen, _BTN_BORDER, rect, 1, border_radius=5)
+            hov = rect.collidepoint(mouse)
+            default_bg = _BTN_HOVER if hov else _BTN_BG
+            bg     = _STATUS_BG.get(self._build_status, default_bg)
+            if is_error and hov:
+                bg = (160, 65, 25)
+            border = _STATUS_BORDER.get(self._build_status, _BTN_BORDER)
+            pygame.draw.rect(self._screen, bg,     rect, border_radius=5)
+            pygame.draw.rect(self._screen, border, rect, 1, border_radius=5)
             surf = self._font_sm.render(label, True, _TEXT)
             self._screen.blit(surf, surf.get_rect(center=rect.center))
 
@@ -430,6 +478,29 @@ class LaunchMenu:
 
         return y
 
+    def _draw_cs_connect_status(self, y: int) -> int:
+        """Draw CoppeliaSim connection hint between the agents section and LAUNCH."""
+        needs_cs = self._renderer in ("coppeliasim", "both")
+        if not needs_cs or self._cs_status == "idle":
+            return y
+
+        cx = _WIN_W // 2
+        if self._cs_status == "checking":
+            s = self._font_sm.render("Connecting to CoppeliaSim...", True, _TEXT_DIM)
+            self._screen.blit(s, s.get_rect(centerx=cx, top=y))
+            return y + s.get_height()
+
+        if self._cs_status == "error":
+            msg = self._cs_message or "Cannot connect to CoppeliaSim"
+            s1 = self._font_sm.render(f"✗  {msg}", True, (220, 80, 80))
+            s2 = self._font_sm.render(
+                "→ Start CoppeliaSim and load the plant scene", True, _TEXT_DIM)
+            self._screen.blit(s1, s1.get_rect(centerx=cx, top=y))
+            self._screen.blit(s2, s2.get_rect(centerx=cx, top=y + s1.get_height() + 3))
+            return y + s1.get_height() + 3 + s2.get_height()
+
+        return y
+
     def _draw_launch_row(self, y: int, mouse: tuple) -> None:
         bw, bh = 160, 44
         cx     = _WIN_W // 2
@@ -437,22 +508,33 @@ class LaunchMenu:
         launch_rect = pygame.Rect(cx - bw - 8, y, bw, bh)
         quit_rect   = pygame.Rect(cx + 8,       y, bw, bh)
 
-        # LAUNCH
-        valid = self._config_valid()
-        if valid:
+        valid    = self._config_valid()
+        needs_cs = self._renderer in ("coppeliasim", "both")
+        checking = needs_cs and self._cs_status == "checking"
+        cs_error = needs_cs and self._cs_status == "error"
+
+        if not valid or checking:
+            label = "Connecting..." if checking else "LAUNCH"
+            pygame.draw.rect(self._screen, _BTN_DISABLED, launch_rect, border_radius=6)
+            pygame.draw.rect(self._screen, (50, 50, 60),  launch_rect, 1, border_radius=6)
+            surf = self._font_md.render(label, True, _TEXT_DIM)
+        elif cs_error:
+            self._regions.append({"rect": launch_rect, "action": "launch"})
+            hov = launch_rect.collidepoint(mouse)
+            pygame.draw.rect(self._screen,
+                             (160, 65, 25) if hov else (130, 50, 20),
+                             launch_rect, border_radius=6)
+            pygame.draw.rect(self._screen, (220, 90, 40), launch_rect, 1, border_radius=6)
+            surf = self._font_md.render("LAUNCH  (retry)", True, _TEXT)
+        else:
             self._regions.append({"rect": launch_rect, "action": "launch"})
             hov = launch_rect.collidepoint(mouse)
             pygame.draw.rect(self._screen, _LAUNCH_HOVER if hov else _LAUNCH_BG,
                              launch_rect, border_radius=6)
             pygame.draw.rect(self._screen, (60, 200, 100), launch_rect, 1, border_radius=6)
             surf = self._font_md.render("LAUNCH", True, _TEXT)
-        else:
-            pygame.draw.rect(self._screen, _BTN_DISABLED, launch_rect, border_radius=6)
-            pygame.draw.rect(self._screen, (50, 50, 60), launch_rect, 1, border_radius=6)
-            surf = self._font_md.render("LAUNCH", True, _TEXT_DIM)
         self._screen.blit(surf, surf.get_rect(center=launch_rect.center))
 
-        # QUIT
         self._regions.append({"rect": quit_rect, "action": "quit"})
         self._btn(quit_rect, "QUIT", mouse)
 

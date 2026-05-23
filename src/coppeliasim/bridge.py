@@ -12,6 +12,7 @@ Usage:
 
 import math
 import sys
+import threading
 import time
 from typing import Dict, List, Optional, Tuple
 
@@ -59,6 +60,47 @@ def _lerp(a: List[float], b: List[float], t: float) -> List[float]:
     return [a[i] + t * (b[i] - a[i]) for i in range(3)]
 
 
+_CONNECT_TIMEOUT: float = 5.0  # seconds before giving up on CoppeliaSim
+
+
+def _connect_zmq(host: str, port: int) -> tuple:
+    """Open a ZeroMQ connection to CoppeliaSim with a hard timeout.
+
+    Runs the blocking RemoteAPIClient handshake in a daemon thread so the
+    caller is not stuck forever when CoppeliaSim is not running.
+
+    Returns (client, sim).
+    Raises ConnectionError after _CONNECT_TIMEOUT seconds with no response.
+    """
+    try:
+        from coppeliasim_zmqremoteapi_client import RemoteAPIClient
+    except ImportError as exc:
+        raise ImportError("Run: pip install coppeliasim-zmqremoteapi-client") from exc
+
+    result: list = [None]
+    error:  list = [None]
+    done = threading.Event()
+
+    def _try() -> None:
+        try:
+            c = RemoteAPIClient(host, port)
+            result[0] = (c, c.require('sim'))
+        except Exception as exc:  # noqa: BLE001
+            error[0] = exc
+        done.set()
+
+    threading.Thread(target=_try, daemon=True).start()
+    if not done.wait(timeout=_CONNECT_TIMEOUT):
+        raise ConnectionError(
+            f"CoppeliaSim not reachable at {host}:{port} "
+            f"after {_CONNECT_TIMEOUT:.0f} s.\n"
+            "  → Start CoppeliaSim and load the plant scene, then try again."
+        )
+    if error[0] is not None:
+        raise error[0]
+    return result[0]
+
+
 class CoppeliaSimBridge:
     """
     One-way bridge: pushes AGV state from Python to CoppeliaSim each step.
@@ -69,15 +111,8 @@ class CoppeliaSimBridge:
     """
 
     def __init__(self, n_agvs: int, host: str = 'localhost', port: int = 23000):
-        try:
-            from coppeliasim_zmqremoteapi_client import RemoteAPIClient
-        except ImportError:
-            print("ERROR: pip install coppeliasim-zmqremoteapi-client")
-            sys.exit(1)
-
         print(f"[bridge] Connecting to CoppeliaSim at {host}:{port} ...")
-        self._client = RemoteAPIClient(host=host, port=port)
-        self._sim    = self._client.require('sim')
+        self._client, self._sim = _connect_zmq(host, port)
         self._n_agvs = n_agvs
         self._bases:  List[int]
         self._lights: List[int]

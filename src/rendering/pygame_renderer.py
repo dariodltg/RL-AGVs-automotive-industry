@@ -154,6 +154,8 @@ class PygameRenderer:
     ):
         pygame.init()
         pygame.display.set_caption(title)
+        from ._icon import make_app_icon
+        pygame.display.set_icon(make_app_icon())
 
         self._win_w   = win_w
         self._win_h   = win_h
