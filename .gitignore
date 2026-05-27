@@ -49,6 +49,12 @@ models/
 *.pth
 *.h5
 
+# SQLite experiment registry
+experiments.db
+*.db
+*.db-wal
+*.db-shm
+
 # Data
 data/raw/
 *.csv

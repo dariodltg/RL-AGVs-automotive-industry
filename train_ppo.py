@@ -14,13 +14,17 @@ Load levels map to task_arrival_rate:
 
 Output:
     models/<run_name>.zip          final model
+    models/<run_name>.json         hyperparameter sidecar (read by evaluate.py)
     models/<run_name>_best/        best model by eval reward
     models/checkpoints/            periodic checkpoints
     logs/tensorboard/<run_name>    TensorBoard logs
 """
 
 import argparse
+import json
+import os
 import time
+from pathlib import Path
 
 from src.env import AGVFleetEnv
 from src.agents import PPOAgent
@@ -96,9 +100,37 @@ def main() -> None:
     )
     elapsed = time.time() - start
 
+    # Save hyperparameter sidecar so evaluate.py can record them in the registry.
+    sidecar = {
+        "hyperparameters": {
+            "learning_rate": args.lr,
+            "n_steps":       args.n_steps,
+            "batch_size":    64,
+            "n_epochs":      10,
+            "gamma":         0.99,
+            "ent_coef":      0.01,
+            "clip_range":    0.2,
+            "vf_coef":       0.5,
+            "max_grad_norm": 0.5,
+        },
+        "env_config": {
+            "n_agvs":            args.n_agvs,
+            "n_tasks_max":       args.n_tasks,
+            "max_steps":         args.max_steps,
+            "load_level":        args.load_level,
+            "task_arrival_rate": LOAD_LEVELS[args.load_level],
+        },
+        "timesteps": args.timesteps,
+        "seed":      args.seed,
+    }
+    sidecar_path = Path("models") / f"{args.run_name}.json"
+    sidecar_path.parent.mkdir(parents=True, exist_ok=True)
+    sidecar_path.write_text(json.dumps(sidecar, indent=2), encoding="utf-8")
+    print(f"Hyperparameter sidecar saved to {sidecar_path}")
+
     print(f"\nTraining finished in {elapsed:.1f}s")
     print(f"To visualize: python run_visual.py --agent ppo --model models/{args.run_name}")
-    print(f"TensorBoard : tensorboard --logdir logs/tensorboard")
+    print("TensorBoard : tensorboard --logdir logs/tensorboard")
 
     train_env.close()
     eval_env.close()

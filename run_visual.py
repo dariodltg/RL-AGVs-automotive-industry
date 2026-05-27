@@ -11,7 +11,6 @@ Usage:
     python run_visual.py --agent ppo --model <path>  # trained PPO model
     python run_visual.py --fps 20                    # faster simulation
     python run_visual.py --episodes 5                # stop after 5 episodes
-    python run_visual.py --no-log                    # disable CSV logging
 
 Controls (in window):
     SPACE       pause / resume
@@ -23,12 +22,10 @@ Controls (in window):
 import argparse
 import sys
 import time
-from typing import Optional
 
 from src.env import AGVFleetEnv
 from src.agents import AStarAgent, PPOAgent
 from src.rendering import PygameRenderer, LaunchMenu
-from src.logging import MetricsLogger
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,7 +38,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--n_agvs",   type=int,  default=None)
     parser.add_argument("--steps",    type=int,  default=500)
     parser.add_argument("--seed",     type=int,  default=42)
-    parser.add_argument("--no-log",   action="store_true", help="Disable CSV metrics logging")
     parser.add_argument(
         "--renderer", choices=["pygame", "coppeliasim", "both"], default=None,
         help="Visualisation backend (default: shown in launch menu)",
@@ -124,23 +120,21 @@ def _advance_episode(env, agent, renderer, bridge=None) -> tuple:
     return reward, terminated or truncated, info
 
 
-def _finish_episode(env, agent, renderer, logger, episode, total_reward, info,
+def _finish_episode(env, agent, renderer, episode, total_reward, info,
                     bridge=None) -> None:
-    """Log, persist and reset after an episode ends."""
+    """Log and reset after an episode ends."""
     _log_episode(episode, total_reward, info)
-    if logger:
-        logger.log_episode(episode, total_reward, info)
     _reset(env, agent, renderer, bridge)
     renderer.episode += 1
 
 
-def _tick(env, agent, renderer, logger, max_eps, done, total_reward, info,
+def _tick(env, agent, renderer, max_eps, done, total_reward, info,
           bridge=None):
     """Process one sim tick. Returns updated (done, total_reward, info, stop)."""
     if not renderer.should_step():
         return done, total_reward, info, False
     if done:
-        _finish_episode(env, agent, renderer, logger,
+        _finish_episode(env, agent, renderer,
                         renderer.episode - 1, total_reward, info, bridge)
         stop = max_eps > 0 and renderer.episode > max_eps
         return False, 0.0, info, stop
@@ -148,8 +142,7 @@ def _tick(env, agent, renderer, logger, max_eps, done, total_reward, info,
     return done, total_reward + reward, info, False
 
 
-def _run_loop(env, agent, renderer, logger, max_eps: int,
-              bridge=None) -> None:
+def _run_loop(env, agent, renderer, max_eps: int, bridge=None) -> None:
     """Pygame-driven loop. When bridge is set, CoppeliaSim syncs each frame."""
     renderer.episode = 1
     _reset(env, agent, renderer, bridge)
@@ -169,7 +162,7 @@ def _run_loop(env, agent, renderer, logger, max_eps: int,
 
         if not renderer.paused:
             done, total_reward, info, stop = _tick(
-                env, agent, renderer, logger, max_eps, done, total_reward, info, bridge)
+                env, agent, renderer, max_eps, done, total_reward, info, bridge)
             if stop:
                 break
 
@@ -181,7 +174,7 @@ def _run_loop(env, agent, renderer, logger, max_eps: int,
         renderer.tick()
 
 
-def _run_coppeliasim_loop(env, agent, bridge, logger, max_eps: int,
+def _run_coppeliasim_loop(env, agent, bridge, max_eps: int,
                           interp_steps: int, delay: float) -> None:
     """CoppeliaSim-only loop — no Pygame, paced by time.sleep."""
     episode      = 1
@@ -201,8 +194,6 @@ def _run_coppeliasim_loop(env, agent, bridge, logger, max_eps: int,
 
         if terminated or truncated:
             _log_episode(episode, total_reward, info)
-            if logger:
-                logger.log_episode(episode, total_reward, info)
             episode += 1
             if max_eps > 0 and episode > max_eps:
                 break
@@ -229,14 +220,6 @@ def _resolve_args(args: argparse.Namespace) -> None:
     if args.renderer is None: args.renderer = "pygame"
 
 
-def _build_logger(args: argparse.Namespace) -> Optional[MetricsLogger]:
-    if args.no_log:
-        return None
-    logger = MetricsLogger(agent=args.agent, n_agvs=args.n_agvs, seed=args.seed)
-    print(f"Logging    : {logger.path}")
-    return logger
-
-
 def main() -> None:
     args = parse_args()
     _resolve_args(args)
@@ -254,8 +237,6 @@ def main() -> None:
         "random": "Random",
     }[args.agent]
 
-    logger = _build_logger(args)
-
     print(f"Agent      : {agent_label}")
     print(f"Renderer   : {args.renderer}")
     print(f"Episodes   : {'infinite' if args.episodes == 0 else args.episodes}")
@@ -265,15 +246,13 @@ def main() -> None:
         bridge = _build_bridge(args)
         try:
             _run_coppeliasim_loop(
-                env, agent, bridge, logger,
+                env, agent, bridge,
                 max_eps=args.episodes,
                 interp_steps=args.interp_steps,
                 delay=args.delay,
             )
         finally:
             bridge.close()
-            if logger:
-                logger.close()
             env.close()
         return
 
@@ -289,13 +268,10 @@ def main() -> None:
     print("Controls   : SPACE=pause  UP/DOWN=speed  R=reset  ESC/Q=quit\n")
 
     try:
-        _run_loop(env, agent, renderer, logger=logger,
-                  max_eps=args.episodes, bridge=bridge)
+        _run_loop(env, agent, renderer, max_eps=args.episodes, bridge=bridge)
     finally:
         if bridge:
             bridge.close()
-        if logger:
-            logger.close()
         env.close()
         renderer.close()
 
