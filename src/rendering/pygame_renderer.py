@@ -154,6 +154,8 @@ class PygameRenderer:
     ):
         pygame.init()
         pygame.display.set_caption(title)
+        from ._icon import make_app_icon
+        pygame.display.set_icon(make_app_icon())
 
         self._win_w   = win_w
         self._win_h   = win_h
@@ -557,8 +559,14 @@ class PygameRenderer:
     def _update_cursor(self, mx: int) -> None:
         near = (self._drag_left or self._drag_right
                 or self._near_left_divider(mx) or self._near_right_divider(mx))
-        cursor = pygame.SYSTEM_CURSOR_SIZEWE if near else pygame.SYSTEM_CURSOR_ARROW
-        pygame.mouse.set_cursor(cursor)
+        if near:
+            pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_SIZEWE)
+            return
+        mouse_pos = pygame.mouse.get_pos()
+        over_button = any(b["rect"].collidepoint(mouse_pos) for b in self._buttons)
+        pygame.mouse.set_cursor(
+            pygame.SYSTEM_CURSOR_HAND if over_button else pygame.SYSTEM_CURSOR_ARROW
+        )
 
     def _handle_button_click(self, pos: Tuple[int, int]) -> Optional[str]:
         _toggle_attrs = {
@@ -649,7 +657,7 @@ class PygameRenderer:
         self._update_particles()
 
     def close(self) -> None:
-        pygame.quit()
+        pass  # pygame stays alive so the caller can return to the menu
 
     # ------------------------------------------------------------------
     # Left panel

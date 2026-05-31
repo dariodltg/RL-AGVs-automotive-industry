@@ -2,3 +2,5 @@ gymnasium>=0.29
 stable-baselines3>=2.3
 numpy>=1.26
 pygame>=2.5
+tensorboard>=2.14
+coppeliasim-zmqremoteapi-client>=1.0
