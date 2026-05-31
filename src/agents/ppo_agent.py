@@ -115,6 +115,7 @@ class PPOAgent(BaseAgent):
         save_path: str = "models",
         run_name: str = "ppo_fleet",
         progress_bar: bool = True,
+        extra_callbacks: Optional[list] = None,
     ) -> None:
         """
         Train the PPO policy.
@@ -158,6 +159,9 @@ class PPOAgent(BaseAgent):
             verbose=0,
         )
         callbacks.append(checkpoint_callback)
+
+        if extra_callbacks:
+            callbacks.extend(extra_callbacks)
 
         self.model.learn(
             total_timesteps=total_timesteps,
