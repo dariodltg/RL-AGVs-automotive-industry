@@ -75,7 +75,7 @@ ENV_FIXED: Dict[str, Any] = {
     "max_steps":   500,
 }
 
-TIMESTEPS     = 200_000
+TIMESTEPS     = 1_000_000
 TRAIN_SEED    = 42
 EVAL_SEEDS    = [0, 1, 2, 3, 4]
 EVAL_EPISODES = 20
