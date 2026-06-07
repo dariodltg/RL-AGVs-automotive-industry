@@ -1,5 +1,4 @@
-# Claude Code
-.claude/
+
 
 # Python
 __pycache__/
@@ -74,7 +73,5 @@ htmlcov/
 .tox/
 .nox/
 
-# Local documentation (not versioned)
-docs/coppeliasim_integration.md
-docs/experiments_summary.md
-docs/grafana_setup.md
+# Local notes and drafts
+docs/
