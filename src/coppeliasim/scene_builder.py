@@ -42,17 +42,18 @@ from src.env.plant_map import CellType, PlantMap
 CELL_SIZE: float = 0.5
 
 # Visual properties per cell type: (rgb, height_m)
-# Stations and special cells are flat floor tiles (same thickness as FREE).
-# Only OBSTACLE stays tall — it represents physical walls / fixed machinery.
+# Colours mirror Pygame's _CELL_COLORS palette so both renderers share the
+# same visual identity per cell type. Stations and special cells are flat
+# floor tiles; only OBSTACLE stays tall as it represents walls / machinery.
 _VISUALS: dict = {
-    CellType.FREE:     ([0.78, 0.78, 0.78], 0.03),  # grey corridor floor
-    CellType.OBSTACLE: ([0.22, 0.22, 0.22], 1.50),  # tall wall / machinery block
-    CellType.ENTRY:    ([0.20, 0.80, 0.20], 0.04),  # green tile
-    CellType.STAMPING: ([0.20, 0.40, 0.85], 0.04),  # blue tile
-    CellType.BUFFER:   ([0.95, 0.60, 0.10], 0.04),  # orange tile
-    CellType.WELDING:  ([0.85, 0.20, 0.20], 0.04),  # red tile
-    CellType.EXIT:     ([0.95, 0.85, 0.10], 0.04),  # yellow tile
-    CellType.CHARGING: ([0.10, 0.85, 0.85], 0.04),  # cyan tile
+    CellType.FREE:     ([0.82, 0.82, 0.82], 0.03),  # light grey corridor floor
+    CellType.OBSTACLE: ([0.18, 0.18, 0.18], 1.50),  # very dark grey wall / machinery
+    CellType.ENTRY:    ([0.20, 0.71, 0.39], 0.04),  # green tile
+    CellType.STAMPING: ([0.27, 0.51, 0.78], 0.04),  # blue tile
+    CellType.BUFFER:   ([0.71, 0.51, 0.20], 0.04),  # amber/brown tile
+    CellType.WELDING:  ([0.78, 0.27, 0.27], 0.04),  # red tile
+    CellType.EXIT:     ([0.47, 0.24, 0.78], 0.04),  # purple tile
+    CellType.CHARGING: ([0.82, 0.78, 0.12], 0.04),  # yellow tile
 }
 
 _GAP: float = 0.01  # gap between adjacent cells (visual separation)
@@ -97,14 +98,15 @@ def _cell_center(row: int, col: int, height: float) -> list:
     """World position [x, y, z] for the centre of a grid cell.
 
     CoppeliaSim coordinate system: Z is UP, XY is the ground plane.
-      X = column direction  (right)
-      Y = row direction     (depth / forward)
-      Z = vertical height   (up)
+      X = column direction (mirrored so col 0 of the grid appears on the
+                            same screen side as Pygame's col 0)
+      Y = row direction    (depth / forward)
+      Z = vertical height  (up)
     """
     return [
-        (col + 0.5) * CELL_SIZE,   # X
-        (row + 0.5) * CELL_SIZE,   # Y  (row → depth)
-        height / 2.0,               # Z  (height above ground)
+        (PlantMap.GRID_SIZE - 1 - col + 0.5) * CELL_SIZE,   # X (mirrored)
+        (row + 0.5) * CELL_SIZE,                             # Y
+        height / 2.0,                                         # Z
     ]
 
 
@@ -150,7 +152,7 @@ def _load_agv_model(sim, idx: int, row: int, col: int, parent: int, model_path: 
 
     Returns (dummy_handle, light_handle).
     """
-    world_x = (col + 0.5) * CELL_SIZE
+    world_x = (PlantMap.GRID_SIZE - 1 - col + 0.5) * CELL_SIZE   # mirrored
     world_y = (row + 0.5) * CELL_SIZE
     name = f'AGV_{idx}'
 
