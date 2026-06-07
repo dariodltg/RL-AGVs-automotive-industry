@@ -143,7 +143,7 @@ python run_visual.py
 
 ### Launch menu
 
-![Launch menu](docs/imgs/simulation_pygame_main_menu.png)
+![Launch menu](resources/imgs/simulation_pygame_main_menu.png)
 
 Before the simulation starts, a configuration screen is shown:
 
@@ -158,7 +158,7 @@ Before the simulation starts, a configuration screen is shown:
 
 ### Simulation window
 
-![Simulation](docs/imgs/simulation_pygame_experiment.png)
+![Simulation](resources/imgs/simulation_pygame_experiment.png)
 
 The window has three areas: a left control panel, the plant grid in the center, and a right metrics panel.
 

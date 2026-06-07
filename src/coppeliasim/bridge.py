@@ -20,6 +20,7 @@ from src.env.agv_fleet_env import AGV, AGVStatus, Task, TaskStatus
 
 # ── Must match scene_builder.py constants ──────────────────────────────────
 _CELL_SIZE:    float = 0.5
+_GRID_SIZE:    int   = 20   # must match PlantMap.GRID_SIZE
 _COLOR_AMBIENT: int  = 0
 
 # Task marker spheres (floating above cells)
@@ -49,9 +50,10 @@ _STATUS_COLORS: dict = {
 
 
 def _grid_to_world(row: int, col: int) -> List[float]:
+    # X is mirrored so the CoppeliaSim viewport matches Pygame's left/right
     return [
-        (col + 0.5) * _CELL_SIZE,
-        (row + 0.5) * _CELL_SIZE,
+        (_GRID_SIZE - 1 - col + 0.5) * _CELL_SIZE,
+        (row + 0.5)                  * _CELL_SIZE,
         0.0,   # dummy root sits at Z=0; model hangs at _AGV_Z_OFFSET below
     ]
 
@@ -304,8 +306,8 @@ class CoppeliaSimBridge:
         """Create a small sphere above a grid cell and return its handle."""
         sim  = self._sim
         d    = radius * 2
-        wx   = (col + 0.5) * _CELL_SIZE
-        wy   = (row + 0.5) * _CELL_SIZE
+        wx   = (_GRID_SIZE - 1 - col + 0.5) * _CELL_SIZE   # mirrored, see _grid_to_world
+        wy   = (row + 0.5)                  * _CELL_SIZE
         handle = sim.createPrimitiveShape(_PRIM_SPHERE, [d, d, d], 0)
         sim.setObjectPosition(handle, -1, [wx, wy, _MARKER_Z])
         sim.setShapeColor(handle, '', _COLOR_AMBIENT, color)

@@ -1,5 +1,5 @@
 """
-Export cell type sprites to docs/imgs/sprites/ for use in documentation.
+Export cell type sprites to resources/imgs/sprites/ for use in documentation.
 
 The canonical sprites live in src/rendering/assets/cells/.
 This script copies them (optionally resizing) to the docs folder so the
@@ -28,7 +28,7 @@ SRC_DIR = os.path.join(
 )
 DST_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "docs", "imgs", "sprites",
+    "resources", "imgs", "sprites",
 )
 
 SPRITE_NAMES = [

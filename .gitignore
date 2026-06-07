@@ -1,5 +1,4 @@
-# Claude Code
-.claude/
+
 
 # Python
 __pycache__/
@@ -73,3 +72,6 @@ pip-delete-this-directory.txt
 htmlcov/
 .tox/
 .nox/
+
+# Local notes and drafts
+docs/
